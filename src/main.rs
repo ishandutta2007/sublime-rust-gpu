@@ -1,6 +1,9 @@
 use gpui::*;
 
-struct HelloWorld;
+struct HelloWorld {
+    // Save line numbers so you can calculate
+    line_numbers: Vec<usize>,
+}
 
 impl HelloWorld {
     fn render_menu_item(&self, label: &'static str) -> impl IntoElement {
@@ -39,29 +42,52 @@ impl Render for HelloWorld {
                     .child(self.render_menu_item("Help")),
             )
             .child(
-                // Main Content Area
                 div()
                     .flex()
                     .flex_1()
-                    .justify_center()
-                    .items_center()
-                    .text_color(rgb(0x666666))
-                    .text_xl()
-                    .child("Hello, Sublime-rust!"),
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .bg(rgb(0x1e1e1e))
+                            .w(px(40.0))
+                            .pt(px(4.0))
+                            .children(
+                                self.line_numbers.iter().map(|n|
+                                    div()
+                                        .h(px(21.0)) 
+                                        .text_color(rgb(0x666666))
+                                        .text_size(px(12.0))
+                                        .ml_2()
+                                        .child(format!("{:>3}", n)) // Right Aligned
+                                ).collect::<Vec<_>>() // // IMPORTANT: collect() to make it a Vec
+                            )
+                    )
+                    .child(
+                        // Editor area
+                        div()
+                            .flex_1()
+                            .p_2()
+                            .font_family("Monaco")
+                            .text_size(px(14.0))
+                            .line_height(px(21.0)) 
+                            .text_color(rgb(0xcccccc))
+                            .child("Hello, Sublime-rust!\nThis is line 2\nAnd line 3")
+                    )
             )
     }
 }
 
 actions!(sublime_rust, [
-    Quit, 
-    NewFile, 
-    Open, 
-    Save, 
-    Undo, 
-    Redo, 
-    Cut, 
-    Copy, 
-    Paste, 
+    Quit,
+    NewFile,
+    Open,
+    Save,
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
     SelectAll,
     Find,
     Replace,
@@ -110,7 +136,9 @@ fn main() {
         ]);
 
         cx.open_window(options, |_, cx| {
-            cx.new(|_| HelloWorld)
+            cx.new(|_| HelloWorld {
+                line_numbers: vec![1, 2, 3]
+            })
         })
         .expect("failed to open window");
     });
