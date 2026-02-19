@@ -305,6 +305,7 @@ impl AppView {
                                                     _this.active_tab_index = Some(_this.open_tabs.len() - 1);
                                                 }
                                             }
+                                            cx.stop_propagation();
                                             cx.notify();
                                         }
                                     }),
@@ -441,6 +442,7 @@ impl Render for AppView {
                     .child(
                         div()
                             .w(px(self.sidebar_width))
+                            .flex_shrink_0()
                             .bg(rgb(0x1e1e1e))
                             .p(px(8.0))
                             .text_color(rgb(0xcccccc))
@@ -450,6 +452,7 @@ impl Render for AppView {
                     .child(
                         div()
                             .w(px(2.0))
+                            .flex_shrink_0()
                             .bg(rgb(0x454545))
                             .cursor_col_resize()
                             .on_mouse_down(
@@ -463,6 +466,7 @@ impl Render for AppView {
                     .child(
                         div()
                             .flex_1()
+                            .min_w_0()
                             .flex()
                             .flex_col()
                             .bg(rgb(0x232323))
