@@ -154,6 +154,7 @@ impl Render for AppView {
                                 Button::new("btn-file")
                                     .ghost()
                                     .xsmall()
+                                    .text_color(rgb(0xcccccc))
                                     .label("File")
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.open_menu = if this.open_menu == OpenMenu::File {
