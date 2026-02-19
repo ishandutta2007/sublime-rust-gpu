@@ -1,11 +1,11 @@
-use gpui::*;
 use gpui::prelude::FluentBuilder;
+use gpui::*;
 use gpui_component::{init, Root};
-use std::collections::{HashSet, HashMap};
-use std::path::PathBuf;
+use serde_json;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs; // New
-use serde_json;
+use std::path::PathBuf;
 
 actions!(sublime_rust, [Quit]);
 
@@ -38,35 +38,50 @@ struct MenuItem {
 
 impl MenuItem {
     fn item(label: &'static str, shortcut: Option<&'static str>) -> Self {
-        Self { label, shortcut, is_separator: false, has_arrow: false }
+        Self {
+            label,
+            shortcut,
+            is_separator: false,
+            has_arrow: false,
+        }
     }
     fn sep() -> Self {
-        Self { label: "", shortcut: None, is_separator: true, has_arrow: false }
+        Self {
+            label: "",
+            shortcut: None,
+            is_separator: true,
+            has_arrow: false,
+        }
     }
     fn submenu(label: &'static str) -> Self {
-        Self { label, shortcut: None, is_separator: false, has_arrow: true }
+        Self {
+            label,
+            shortcut: None,
+            is_separator: false,
+            has_arrow: true,
+        }
     }
 }
 
 fn file_menu_items() -> Vec<MenuItem> {
     vec![
-        MenuItem::item("New File",           Some("Ctrl+N")),
+        MenuItem::item("New File", Some("Ctrl+N")),
         MenuItem::sep(),
-        MenuItem::item("Open File...",        Some("Ctrl+O")),
-        MenuItem::item("Open Folder...",      None),
+        MenuItem::item("Open File...", Some("Ctrl+O")),
+        MenuItem::item("Open Folder...", None),
         MenuItem::submenu("Open Recent"),
         MenuItem::sep(),
-        MenuItem::item("Reopen Closed File",  None),
-        MenuItem::item("New View into File",  None),
+        MenuItem::item("Reopen Closed File", None),
+        MenuItem::item("New View into File", None),
         MenuItem::sep(),
-        MenuItem::item("Save",                Some("Ctrl+S")),
-        MenuItem::item("Save As...",          None),
-        MenuItem::item("Save All",            None),
+        MenuItem::item("Save", Some("Ctrl+S")),
+        MenuItem::item("Save As...", None),
+        MenuItem::item("Save All", None),
         MenuItem::sep(),
-        MenuItem::item("Reload from Disk",    None),
+        MenuItem::item("Reload from Disk", None),
         MenuItem::sep(),
-        MenuItem::item("Close View",          Some("Ctrl+W")),
-        MenuItem::item("Close File",          None),
+        MenuItem::item("Close View", Some("Ctrl+W")),
+        MenuItem::item("Close File", None),
         MenuItem::sep(),
         if cfg!(target_os = "macos") {
             MenuItem::item("Quit", Some("Cmd+Q"))
@@ -184,10 +199,10 @@ const MENU_BUTTON_CORRECTION_PX: f32 = 1.0; // Adjustment for visual alignment
 
 impl AppView {
     fn new(_cx: &mut Context<Self>) -> Self {
-        let charlen_json_content = fs::read_to_string("charlen_12px.json")
-            .expect("Failed to read charlen_12px.json");
-        let char_widths: HashMap<char, f32> = serde_json::from_str(&charlen_json_content)
-            .expect("Failed to parse charlen_12px.json");
+        let charlen_json_content =
+            fs::read_to_string("charlen_12px.json").expect("Failed to read charlen_12px.json");
+        let char_widths: HashMap<char, f32> =
+            serde_json::from_str(&charlen_json_content).expect("Failed to parse charlen_12px.json");
 
         Self {
             open_menu: OpenMenu::None,
@@ -197,14 +212,11 @@ impl AppView {
         }
     }
 
-
-
-
-
     /// Recursively renders the project explorer tree.
     fn render_project_explorer(&self, path: PathBuf, cx: &mut Context<Self>) -> impl IntoElement {
         let is_expanded = self.expanded_projects.contains(&path);
-        let project_name = path.file_name()
+        let project_name = path
+            .file_name()
             .map_or("?", |os_str| os_str.to_str().unwrap_or("?"))
             .to_string();
 
@@ -215,17 +227,20 @@ impl AppView {
             .child(project_name)
             .text_color(rgb(0xdddddd))
             .cursor_pointer()
-            .on_mouse_down(MouseButton::Left, cx.listener({
-                let path_clone = path.clone();
-                move |_this, _, _, cx| {
-                    if _this.expanded_projects.contains(&path_clone) {
-                        _this.expanded_projects.remove(&path_clone);
-                    } else {
-                        _this.expanded_projects.insert(path_clone.clone());
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener({
+                    let path_clone = path.clone();
+                    move |_this, _, _, cx| {
+                        if _this.expanded_projects.contains(&path_clone) {
+                            _this.expanded_projects.remove(&path_clone);
+                        } else {
+                            _this.expanded_projects.insert(path_clone.clone());
+                        }
+                        cx.notify();
                     }
-                    cx.notify();
-                }
-            }));
+                }),
+            );
 
         let mut children_elements: Vec<AnyElement> = vec![];
         if is_expanded {
@@ -244,12 +259,13 @@ impl AppView {
                 for entry in sorted_entries {
                     let entry_path = entry.path();
                     let os_string = entry.file_name();
-                    let file_name = os_string.to_str()
-                        .unwrap_or("?")
-                        .to_string();
+                    let file_name = os_string.to_str().unwrap_or("?").to_string();
 
                     if entry_path.is_dir() {
-                        children_elements.push(self.render_project_explorer(entry_path.clone(), cx).into_any_element());
+                        children_elements.push(
+                            self.render_project_explorer(entry_path.clone(), cx)
+                                .into_any_element(),
+                        );
                     } else {
                         // File entry
                         children_elements.push(
@@ -258,15 +274,18 @@ impl AppView {
                                 .child(file_name)
                                 .text_color(rgb(0xaaaaaa))
                                 .cursor_pointer()
-                                .on_mouse_down(MouseButton::Left, cx.listener({
-                                    let entry_path_clone = entry_path.clone();
-                                    move |_this, _, _, cx| {
-                                        // TODO: Open file
-                                        eprintln!("Clicked file: {:?}", entry_path_clone);
-                                        cx.notify();
-                                    }
-                                }))
-                                .into_any_element()
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener({
+                                        let entry_path_clone = entry_path.clone();
+                                        move |_this, _, _, cx| {
+                                            // TODO: Open file
+                                            eprintln!("Clicked file: {:?}", entry_path_clone);
+                                            cx.notify();
+                                        }
+                                    }),
+                                )
+                                .into_any_element(),
                         );
                     }
                 }
@@ -286,21 +305,26 @@ impl Render for AppView {
         // Compute horizontal offset of the open menu button so the dropdown
         // can be absolutely positioned from the root — above the sidebar.
         let menu_bar_labels: &[(&str, OpenMenu)] = &[
-            ("File",        OpenMenu::File),
-            ("Edit",        OpenMenu::Edit),
-            ("Selection",   OpenMenu::Selection),
-            ("Find",        OpenMenu::Find),
-            ("View",        OpenMenu::View),
-            ("Goto",        OpenMenu::Goto),
-            ("Tools",       OpenMenu::Tools),
-            ("Project",     OpenMenu::Project),
+            ("File", OpenMenu::File),
+            ("Edit", OpenMenu::Edit),
+            ("Selection", OpenMenu::Selection),
+            ("Find", OpenMenu::Find),
+            ("View", OpenMenu::View),
+            ("Goto", OpenMenu::Goto),
+            ("Tools", OpenMenu::Tools),
+            ("Project", OpenMenu::Project),
             ("Preferences", OpenMenu::Preferences),
-            ("Help",        OpenMenu::Help),
+            ("Help", OpenMenu::Help),
         ];
 
         // Approximate pixel width of each menu label button (px_3 = 12px padding + ~7px/char)
         let btn_width = |label: &str| {
-            label.chars().map(|c| self.char_widths.get(&c).unwrap_or(&7.0)).sum::<f32>() + MENU_BUTTON_HORIZONTAL_PADDING_PX - MENU_BUTTON_CORRECTION_PX
+            label
+                .chars()
+                .map(|c| self.char_widths.get(&c).unwrap_or(&7.0))
+                .sum::<f32>()
+                + MENU_BUTTON_HORIZONTAL_PADDING_PX
+                - MENU_BUTTON_CORRECTION_PX
         };
 
         let mut dropdown_left = 0.0f32;
@@ -320,37 +344,41 @@ impl Render for AppView {
             .relative()
             .bg(rgb(0x232323))
             // ── Menu bar (labels only — no dropdowns nested here) ─────────
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .bg(rgb(0x1e1e1e))
-                    .w_full()
-                    .children(menu_bar_labels.iter().map(|(label, variant)| {
-                        let is_open = variant == &self.open_menu;
-                        let variant = variant.clone();
-                        div()
-                            .px_3()
-                            .py_1()
-                            .text_size(px(12.0))
-                            .text_color(if is_open { rgb(0xffffff) } else { rgb(0xcccccc) })
-                            .bg(if is_open { rgb(0x3e3e3e) } else { rgb(0x1e1e1e) })
-                            .hover(|s| s.bg(rgb(0x3e3e3e)).text_color(rgb(0xcccccc)))
-                            .cursor_pointer()
-                            .on_mouse_down(MouseButton::Left, cx.listener(
-                                move |_this, _, _, cx| {
-                                    _this.open_menu = if _this.open_menu == variant {
-                                        OpenMenu::None
-                                    } else {
-                                        variant.clone()
-                                    };
-                                    cx.notify();
-                                }
-                            ))
-                            .child(*label)
-                            .into_any_element()
-                    }))
-            )
+            .child(div().flex().flex_row().bg(rgb(0x1e1e1e)).w_full().children(
+                menu_bar_labels.iter().map(|(label, variant)| {
+                    let is_open = variant == &self.open_menu;
+                    let variant = variant.clone();
+                    div()
+                        .px_3()
+                        .py_1()
+                        .text_size(px(12.0))
+                        .text_color(if is_open {
+                            rgb(0xffffff)
+                        } else {
+                            rgb(0xcccccc)
+                        })
+                        .bg(if is_open {
+                            rgb(0x3e3e3e)
+                        } else {
+                            rgb(0x1e1e1e)
+                        })
+                        .hover(|s| s.bg(rgb(0x3e3e3e)).text_color(rgb(0xcccccc)))
+                        .cursor_pointer()
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |_this, _, _, cx| {
+                                _this.open_menu = if _this.open_menu == variant {
+                                    OpenMenu::None
+                                } else {
+                                    variant.clone()
+                                };
+                                cx.notify();
+                            }),
+                        )
+                        .child(*label)
+                        .into_any_element()
+                }),
+            ))
             // ── Sidebar + editor ──────────────────────────────────────────
             .child(
                 div()
@@ -365,7 +393,7 @@ impl Render for AppView {
                             .border_color(rgb(0x454545))
                             .p(px(8.0))
                             .text_color(rgb(0xcccccc))
-                            .child(self.render_project_explorer(self.current_dir.clone(), cx))
+                            .child(self.render_project_explorer(self.current_dir.clone(), cx)),
                     )
                     .child(
                         div()
@@ -376,22 +404,22 @@ impl Render for AppView {
                             .text_xl()
                             .text_color(rgb(0x555555))
                             .child("Hello, Sublime-rust!"),
-                    )
+                    ),
             )
             // ── Dropdown overlay — rendered LAST so it paints on top ──────
             .when(self.open_menu != OpenMenu::None, |el: Div| {
                 let items = match &self.open_menu {
-                    OpenMenu::File        => file_menu_items(),
-                    OpenMenu::Edit        => edit_menu_items(),
-                    OpenMenu::Selection   => selection_menu_items(),
-                    OpenMenu::Find        => find_menu_items(),
-                    OpenMenu::View        => view_menu_items(),
-                    OpenMenu::Goto        => goto_menu_items(),
-                    OpenMenu::Tools       => tools_menu_items(),
-                    OpenMenu::Project     => project_menu_items(),
+                    OpenMenu::File => file_menu_items(),
+                    OpenMenu::Edit => edit_menu_items(),
+                    OpenMenu::Selection => selection_menu_items(),
+                    OpenMenu::Find => find_menu_items(),
+                    OpenMenu::View => view_menu_items(),
+                    OpenMenu::Goto => goto_menu_items(),
+                    OpenMenu::Tools => tools_menu_items(),
+                    OpenMenu::Project => project_menu_items(),
                     OpenMenu::Preferences => preferences_menu_items(),
-                    OpenMenu::Help        => help_menu_items(),
-                    OpenMenu::None        => vec![],
+                    OpenMenu::Help => help_menu_items(),
+                    OpenMenu::None => vec![],
                 };
                 el
                     // Full-window transparent capture layer — click outside to close
@@ -401,10 +429,13 @@ impl Render for AppView {
                             .top(px(0.0))
                             .left(px(0.0))
                             .size_full()
-                            .on_mouse_down(MouseButton::Left, cx.listener(|_this, _, _, cx| {
-                                _this.open_menu = OpenMenu::None;
-                                cx.notify();
-                            }))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|_this, _, _, cx| {
+                                    _this.open_menu = OpenMenu::None;
+                                    cx.notify();
+                                }),
+                            ),
                     )
                     // The dropdown panel itself, anchored below the clicked button
                     .child(
@@ -456,7 +487,7 @@ impl Render for AppView {
                                         })
                                         .into_any_element()
                                 }
-                            }))
+                            })),
                     )
             })
     }
