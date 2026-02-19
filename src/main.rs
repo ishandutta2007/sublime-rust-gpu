@@ -176,7 +176,6 @@ struct AppView {
     current_dir: PathBuf,
     expanded_projects: HashSet<PathBuf>,
     char_widths: HashMap<char, f32>, // New field
-    active_menu_button_bounds: Option<Bounds<f32>>,
 }
 
 // Constants for menu button sizing
@@ -194,7 +193,6 @@ impl AppView {
             open_menu: OpenMenu::None,
             current_dir: env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             expanded_projects: HashSet::new(),
-            active_menu_button_bounds: None,
             char_widths, // Initialize with parsed data
         }
     }
