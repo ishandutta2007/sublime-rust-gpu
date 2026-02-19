@@ -10,9 +10,18 @@ actions!(sublime_rust, [Quit]);
 enum OpenMenu {
     None,
     File,
+    Edit,
+    Selection,
+    Find,
+    View,
+    Goto,
+    Tools,
+    Project,
+    Preferences,
+    Help,
 }
 
-// ── File-menu dropdown items ──────────────────────────────────────────────────
+// ── Dropdown items for all menus ──────────────────────────────────────────────
 
 #[derive(Clone)]
 struct MenuItem {
@@ -62,6 +71,99 @@ fn file_menu_items() -> Vec<MenuItem> {
     ]
 }
 
+fn edit_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Undo", Some("Ctrl+Z")),
+        MenuItem::item("Redo", Some("Ctrl+Y")),
+        MenuItem::sep(),
+        MenuItem::item("Copy", Some("Ctrl+C")),
+        MenuItem::item("Cut", Some("Ctrl+X")),
+        MenuItem::item("Paste", Some("Ctrl+V")),
+        MenuItem::sep(),
+        MenuItem::submenu("Line"),
+        MenuItem::submenu("Comment"),
+        MenuItem::submenu("Text"),
+        MenuItem::submenu("Tag"),
+    ]
+}
+
+fn selection_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Select All", Some("Ctrl+A")),
+        MenuItem::item("Expand Selection", Some("Ctrl+L")),
+        MenuItem::sep(),
+        MenuItem::item("Add Next Line", Some("Ctrl+Alt+Down")),
+        MenuItem::item("Add Previous Line", Some("Ctrl+Alt+Up")),
+    ]
+}
+
+fn find_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Find...", Some("Ctrl+F")),
+        MenuItem::item("Find Next", Some("F3")),
+        MenuItem::item("Find Previous", Some("Shift+F3")),
+        MenuItem::item("Replace...", Some("Ctrl+H")),
+        MenuItem::sep(),
+        MenuItem::item("Find in Files...", Some("Ctrl+Shift+F")),
+    ]
+}
+
+fn view_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::submenu("Side Bar"),
+        MenuItem::submenu("Show Console"),
+        MenuItem::sep(),
+        MenuItem::submenu("Layout"),
+        MenuItem::submenu("Groups"),
+    ]
+}
+
+fn goto_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Goto Anything...", Some("Ctrl+P")),
+        MenuItem::sep(),
+        MenuItem::item("Goto Symbol...", Some("Ctrl+R")),
+        MenuItem::item("Goto Line...", Some("Ctrl+G")),
+    ]
+}
+
+fn tools_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Command Palette...", Some("Ctrl+Shift+P")),
+        MenuItem::sep(),
+        MenuItem::submenu("Build System"),
+        MenuItem::item("Build", Some("Ctrl+B")),
+    ]
+}
+
+fn project_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Open Project...", None),
+        MenuItem::submenu("Recent Projects"),
+        MenuItem::sep(),
+        MenuItem::item("Save Project As...", None),
+    ]
+}
+
+fn preferences_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Settings", None),
+        MenuItem::item("Key Bindings", None),
+        MenuItem::sep(),
+        MenuItem::submenu("Color Scheme"),
+        MenuItem::submenu("Theme"),
+    ]
+}
+
+fn help_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Documentation", None),
+        MenuItem::item("Twitter", None),
+        MenuItem::sep(),
+        MenuItem::item("About Sublime Text", None),
+    ]
+}
+
 // ── App view ──────────────────────────────────────────────────────────────────
 
 struct AppView {
@@ -73,8 +175,8 @@ impl AppView {
         Self { open_menu: OpenMenu::None }
     }
 
-    /// Render the dropdown panel for the File menu
-    fn render_file_dropdown(&self) -> impl IntoElement {
+    /// Render a dropdown panel for a given menu
+    fn render_dropdown(&self, items: Vec<MenuItem>) -> impl IntoElement {
         div()
             .absolute()
             .top(px(26.0))
@@ -85,7 +187,7 @@ impl AppView {
             .border_color(rgb(0x454545))
             .shadow_lg()
             .py(px(4.0))
-            .children(file_menu_items().into_iter().map(|item| {
+            .children(items.into_iter().map(|item| {
                 if item.is_separator {
                     div()
                         .h(px(1.0))
@@ -125,12 +227,46 @@ impl AppView {
                 }
             }))
     }
+
+    /// Render a single menu bar button and its associated dropdown
+    fn render_menu_button(
+        &self,
+        label: &'static str,
+        menu: OpenMenu,
+        items: Vec<MenuItem>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let is_open = self.open_menu == menu;
+
+        div()
+            .relative()
+            .child(
+                div()
+                    .px_3()
+                    .py_1()
+                    .text_size(px(12.0))
+                    .text_color(rgb(0xcccccc))
+                    .hover(|s| s.bg(rgb(0x3e3e3e)).text_color(rgb(0xcccccc)))
+                    .cursor_pointer()
+                    .on_mouse_down(MouseButton::Left, cx.listener({
+                        let menu = menu.clone();
+                        move |this, _, _, cx| {
+                            if this.open_menu == menu {
+                                this.open_menu = OpenMenu::None;
+                            } else {
+                                this.open_menu = menu.clone();
+                            }
+                            cx.notify();
+                        }
+                    }))
+                    .child(label),
+            )
+            .when(is_open, |el: Div| el.child(self.render_dropdown(items)))
+    }
 }
 
 impl Render for AppView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let file_open = self.open_menu == OpenMenu::File;
-
         div()
             .flex()
             .flex_col()
@@ -143,40 +279,16 @@ impl Render for AppView {
                     .flex_row()
                     .bg(rgb(0x1e1e1e))
                     .w_full()
-                    // File button — uses gpui-component Button which is confirmed working
-                    .child(
-                        div()
-                            .relative()
-                            .child(
-                                div()
-                                    .px_3()
-                                    .py_1()
-                                    .text_size(px(12.0))
-                                    .text_color(rgb(0xcccccc))
-                                    .hover(|s| s.bg(rgb(0x3e3e3e)).text_color(rgb(0xcccccc)))
-                                    .cursor_pointer()
-                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                                        this.open_menu = if this.open_menu == OpenMenu::File {
-                                            OpenMenu::None
-                                        } else {
-                                            OpenMenu::File
-                                        };
-                                        cx.notify();
-                                    }))
-                                    .child("File"),
-                            )
-                            .when(file_open, |el: Div| el.child(self.render_file_dropdown())),
-                    )
-                    // Other menu bar labels (static for now)
-                    .child(plain_menu_label("Edit"))
-                    .child(plain_menu_label("Selection"))
-                    .child(plain_menu_label("Find"))
-                    .child(plain_menu_label("View"))
-                    .child(plain_menu_label("Goto"))
-                    .child(plain_menu_label("Tools"))
-                    .child(plain_menu_label("Project"))
-                    .child(plain_menu_label("Preferences"))
-                    .child(plain_menu_label("Help")),
+                    .child(self.render_menu_button("File", OpenMenu::File, file_menu_items(), cx))
+                    .child(self.render_menu_button("Edit", OpenMenu::Edit, edit_menu_items(), cx))
+                    .child(self.render_menu_button("Selection", OpenMenu::Selection, selection_menu_items(), cx))
+                    .child(self.render_menu_button("Find", OpenMenu::Find, find_menu_items(), cx))
+                    .child(self.render_menu_button("View", OpenMenu::View, view_menu_items(), cx))
+                    .child(self.render_menu_button("Goto", OpenMenu::Goto, goto_menu_items(), cx))
+                    .child(self.render_menu_button("Tools", OpenMenu::Tools, tools_menu_items(), cx))
+                    .child(self.render_menu_button("Project", OpenMenu::Project, project_menu_items(), cx))
+                    .child(self.render_menu_button("Preferences", OpenMenu::Preferences, preferences_menu_items(), cx))
+                    .child(self.render_menu_button("Help", OpenMenu::Help, help_menu_items(), cx)),
             )
             // ── Main content ──────────────────────────────────────────────
             .child(
@@ -190,17 +302,6 @@ impl Render for AppView {
                     .child("Hello, Sublime-rust!"),
             )
     }
-}
-
-fn plain_menu_label(label: &'static str) -> impl IntoElement {
-    div()
-        .px_3()
-        .py_1()
-        .text_size(px(12.0))
-        .text_color(rgb(0xcccccc))
-        .hover(|s| s.bg(rgb(0x3e3e3e)))
-        .cursor_pointer()
-        .child(label)
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
