@@ -1,7 +1,7 @@
 [package]
 authors = ["Ishan Dutta <ishandutta2007@gmail.com>"]
 
-name = "sublime-rust"
+name = "sublime-rust-gpu"
 version = "0.1.0"
 edition = "2021"
 

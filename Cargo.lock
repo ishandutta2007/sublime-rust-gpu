@@ -5406,7 +5406,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sublime-rust"
+name = "sublime-rust-gpu"
 version = "0.1.0"
 dependencies = [
  "gpui",

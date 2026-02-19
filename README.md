@@ -1,6 +1,7 @@
-# Sublime Rust
+# Sublime Rust GPU
 
-A high-performance, modern text editor inspired by Sublime Text, rewritten from the ground up in Rust using the GPUI framework.
+A high-performance, modern text editor inspired by Sublime Text, rewritten from the ground up in Rust using the GPUI framework.(GPU needed). For CPU Version Check: [Sublime Rust CPU](https://github.com/ishandutta2007/sublime-rust-cpu)
+
 
 ## Project Goals
 
