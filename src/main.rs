@@ -439,6 +439,7 @@ impl Render for AppView {
                     .flex_1()
                     .flex()
                     .flex_row()
+                    //Sidebar
                     .child(
                         div()
                             .w(px(self.sidebar_width))
@@ -449,6 +450,7 @@ impl Render for AppView {
                             .overflow_hidden()
                             .child(self.render_project_explorer(self.current_dir.clone(), cx)),
                     )
+                    //Separator
                     .child(
                         div()
                             .w(px(2.0))
@@ -463,6 +465,7 @@ impl Render for AppView {
                                 }),
                             ),
                     )
+                    //Editor
                     .child(
                         div()
                             .flex_1()
