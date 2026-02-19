@@ -1,6 +1,9 @@
 use gpui::*;
 use gpui::prelude::FluentBuilder;
 use gpui_component::{init, Root};
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::env;
 
 actions!(sublime_rust, [Quit]);
 
@@ -168,11 +171,17 @@ fn help_menu_items() -> Vec<MenuItem> {
 
 struct AppView {
     open_menu: OpenMenu,
+    current_dir: PathBuf,
+    expanded_projects: HashSet<PathBuf>,
 }
 
 impl AppView {
     fn new(_cx: &mut Context<Self>) -> Self {
-        Self { open_menu: OpenMenu::None }
+        Self {
+            open_menu: OpenMenu::None,
+            current_dir: env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            expanded_projects: HashSet::new(),
+        }
     }
 
     /// Render a dropdown panel for a given menu
@@ -263,6 +272,85 @@ impl AppView {
             )
             .when(is_open, |el: Div| el.child(self.render_dropdown(items)))
     }
+
+    /// Recursively renders the project explorer tree.
+    fn render_project_explorer(&self, path: PathBuf, cx: &mut Context<Self>) -> impl IntoElement {
+        let is_expanded = self.expanded_projects.contains(&path);
+        let project_name = path.file_name()
+            .map_or("?", |os_str| os_str.to_str().unwrap_or("?"))
+            .to_string();
+
+        let project_label = div()
+            .flex()
+            .items_center()
+            .child(if is_expanded { "▼ " } else { "▶ " })
+            .child(project_name)
+            .text_color(rgb(0xdddddd))
+            .cursor_pointer()
+            .on_mouse_down(MouseButton::Left, cx.listener({
+                let path_clone = path.clone();
+                move |this, _, _, cx| {
+                    if this.expanded_projects.contains(&path_clone) {
+                        this.expanded_projects.remove(&path_clone);
+                    } else {
+                        this.expanded_projects.insert(path_clone.clone());
+                    }
+                    cx.notify();
+                }
+            }));
+
+        let mut children_elements: Vec<AnyElement> = vec![];
+        if is_expanded {
+            if let Ok(entries) = std::fs::read_dir(&path) {
+                let mut sorted_entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
+                sorted_entries.sort_by(|a, b| {
+                    let a_is_dir = a.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+                    let b_is_dir = b.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+                    match (a_is_dir, b_is_dir) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.file_name().cmp(&b.file_name()),
+                    }
+                });
+
+                for entry in sorted_entries {
+                    let entry_path = entry.path();
+                    let os_string = entry.file_name();
+                    let file_name = os_string.to_str()
+                        .unwrap_or("?")
+                        .to_string();
+
+                    if entry_path.is_dir() {
+                        children_elements.push(self.render_project_explorer(entry_path.clone(), cx).into_any_element());
+                    } else {
+                        // File entry
+                        children_elements.push(
+                            div()
+                                .px(px(16.0)) // Indent files
+                                .child(file_name)
+                                .text_color(rgb(0xaaaaaa))
+                                .cursor_pointer()
+                                .on_mouse_down(MouseButton::Left, cx.listener({
+                                    let entry_path_clone = entry_path.clone();
+                                    move |this, _, _, cx| {
+                                        // TODO: Open file
+                                        eprintln!("Clicked file: {:?}", entry_path_clone);
+                                        cx.notify();
+                                    }
+                                }))
+                                .into_any_element()
+                        );
+                    }
+                }
+            }
+        }
+
+        div()
+            .flex()
+            .flex_col()
+            .child(project_label)
+            .children(children_elements)
+    }
 }
 
 impl Render for AppView {
@@ -293,13 +381,26 @@ impl Render for AppView {
             )
             // Everything below the menu bar
             .child(
-                div() // Container for main content and overlay
+                div() // This now acts as the container for the side pane and main editor area
                     .flex_1() // Takes up the remaining vertical space
                     .relative() // Important for absolute positioning of children
-                    // Main content
+                    .flex() // Make this a flex container for row layout
+                    .flex_row()
+                    // Left Side Pane (Project Explorer)
                     .child(
                         div()
-                            .size_full() // Takes full size of this relative parent
+                            .w(px(200.0)) // Fixed width for the side pane
+                            .bg(rgb(0x1e1e1e)) // Background for the side pane
+                            .border_r_1() // Right border
+                            .border_color(rgb(0x454545))
+                            .p(px(8.0))
+                            .text_color(rgb(0xcccccc))
+                            .child(self.render_project_explorer(self.current_dir.clone(), cx))
+                    )
+                    // Main Editor Area
+                    .child(
+                        div() // Takes full size of this relative parent
+                            .flex_1() // Takes remaining horizontal space
                             .flex()
                             .justify_center()
                             .items_center()
