@@ -77,7 +77,7 @@ impl AppView {
     fn render_file_dropdown(&self) -> impl IntoElement {
         div()
             .absolute()
-            .top(px(22.0))
+            .top(px(26.0))
             .left(px(0.0))
             .w(px(270.0))
             .bg(rgb(0x2d2d2d))
