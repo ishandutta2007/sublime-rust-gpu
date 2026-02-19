@@ -2,3 +2,4 @@ target
 *.bak
 *.log
 *.txt
+.ruff_cache
