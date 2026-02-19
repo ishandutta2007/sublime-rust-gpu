@@ -5,7 +5,6 @@ use std::collections::{HashSet, HashMap};
 use std::path::PathBuf;
 use std::env;
 use std::fs; // New
-use serde::Deserialize;
 use serde_json;
 
 actions!(sublime_rust, [Quit]);
@@ -180,6 +179,10 @@ struct AppView {
     active_menu_button_bounds: Option<Bounds<f32>>,
 }
 
+// Constants for menu button sizing
+const MENU_BUTTON_HORIZONTAL_PADDING_PX: f32 = 24.0; // Corresponds to px_3() (12px left + 12px right)
+const MENU_BUTTON_CORRECTION_PX: f32 = 1.0; // Adjustment for visual alignment
+
 impl AppView {
     fn new(_cx: &mut Context<Self>) -> Self {
         let charlen_json_content = fs::read_to_string("charlen_12px.json")
@@ -196,94 +199,9 @@ impl AppView {
         }
     }
 
-    /// Render a dropdown panel for a given menu
-    fn render_dropdown(&self, items: Vec<MenuItem>) -> impl IntoElement {
-        div()
-            .absolute()
-            .top(px(26.0))
-            .left(px(0.0))
-            .w(px(270.0))
-            .bg(rgb(0x2d2d2d))
-            .border_1()
-            .border_color(rgb(0x454545))
-            .shadow_lg()
-            .py(px(4.0))
-            .children(items.into_iter().map(|item| {
-                if item.is_separator {
-                    div()
-                        .h(px(1.0))
-                        .my(px(3.0))
-                        .mx(px(8.0))
-                        .bg(rgb(0x444444))
-                        .into_any_element()
-                } else {
-                    div()
-                        .flex()
-                        .justify_between()
-                        .items_center()
-                        .px(px(12.0))
-                        .py(px(3.0))
-                        .text_size(px(12.0))
-                        .text_color(rgb(0xcccccc))
-                        .hover(|s| s.bg(rgb(0x094771)).text_color(rgb(0xffffff)))
-                        .cursor_pointer()
-                        .child(item.label)
-                        .when(item.has_arrow, |el: Div| {
-                            el.child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(rgb(0x888888))
-                                    .child("▶"),
-                            )
-                        })
-                        .when_some(item.shortcut, |el: Div, sc| {
-                            el.child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(rgb(0x888888))
-                                    .child(sc),
-                            )
-                        })
-                        .into_any_element()
-                }
-            }))
-    }
 
-    /// Render a single menu bar button and its associated dropdown
-    fn render_menu_button(
-        &self,
-        label: &'static str,
-        menu: OpenMenu,
-        items: Vec<MenuItem>,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let is_open = self.open_menu == menu;
 
-        div()
-            .relative()
-            .child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .text_size(px(12.0))
-                    .text_color(rgb(0xcccccc))
-                    .hover(|s| s.bg(rgb(0x3e3e3e)).text_color(rgb(0xcccccc)))
-                    .cursor_pointer()
-                    .on_mouse_down(MouseButton::Left, cx.listener({
-                        let menu = menu.clone();
-                        move |this, _, _, cx| {
-                            if this.open_menu == menu {
-                                this.open_menu = OpenMenu::None;
-                            } else {
-                                this.open_menu = menu.clone();
-                            }
-                            cx.notify();
-                        }
-                    }))
-                    .child(label),
-            )
-            .when(is_open, |el: Div| el.child(self.render_dropdown(items)))
-    }
+
 
     /// Recursively renders the project explorer tree.
     fn render_project_explorer(&self, path: PathBuf, cx: &mut Context<Self>) -> impl IntoElement {
@@ -301,11 +219,11 @@ impl AppView {
             .cursor_pointer()
             .on_mouse_down(MouseButton::Left, cx.listener({
                 let path_clone = path.clone();
-                move |this, _, _, cx| {
-                    if this.expanded_projects.contains(&path_clone) {
-                        this.expanded_projects.remove(&path_clone);
+                move |_this, _, _, cx| {
+                    if _this.expanded_projects.contains(&path_clone) {
+                        _this.expanded_projects.remove(&path_clone);
                     } else {
-                        this.expanded_projects.insert(path_clone.clone());
+                        _this.expanded_projects.insert(path_clone.clone());
                     }
                     cx.notify();
                 }
@@ -344,7 +262,7 @@ impl AppView {
                                 .cursor_pointer()
                                 .on_mouse_down(MouseButton::Left, cx.listener({
                                     let entry_path_clone = entry_path.clone();
-                                    move |this, _, _, cx| {
+                                    move |_this, _, _, cx| {
                                         // TODO: Open file
                                         eprintln!("Clicked file: {:?}", entry_path_clone);
                                         cx.notify();
@@ -384,7 +302,7 @@ impl Render for AppView {
 
         // Approximate pixel width of each menu label button (px_3 = 12px padding + ~7px/char)
         let btn_width = |label: &str| {
-            label.chars().map(|c| self.char_widths.get(&c).unwrap_or(&7.0)).sum::<f32>() + 24.0 - 1.0
+            label.chars().map(|c| self.char_widths.get(&c).unwrap_or(&7.0)).sum::<f32>() + MENU_BUTTON_HORIZONTAL_PADDING_PX - MENU_BUTTON_CORRECTION_PX
         };
 
         let mut dropdown_left = 0.0f32;
@@ -422,8 +340,8 @@ impl Render for AppView {
                             .hover(|s| s.bg(rgb(0x3e3e3e)).text_color(rgb(0xcccccc)))
                             .cursor_pointer()
                             .on_mouse_down(MouseButton::Left, cx.listener(
-                                move |this, _, _, cx| {
-                                    this.open_menu = if this.open_menu == variant {
+                                move |_this, _, _, cx| {
+                                    _this.open_menu = if _this.open_menu == variant {
                                         OpenMenu::None
                                     } else {
                                         variant.clone()
@@ -485,8 +403,8 @@ impl Render for AppView {
                             .top(px(0.0))
                             .left(px(0.0))
                             .size_full()
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                                this.open_menu = OpenMenu::None;
+                            .on_mouse_down(MouseButton::Left, cx.listener(|_this, _, _, cx| {
+                                _this.open_menu = OpenMenu::None;
                                 cx.notify();
                             }))
                     )
