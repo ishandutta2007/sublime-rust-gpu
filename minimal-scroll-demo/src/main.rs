@@ -1,12 +1,12 @@
 use gpui::prelude::FluentBuilder;
 use gpui::*;
-use gpui_component::{init, Root, v_flex, h_flex};
-use gpui_component::scroll::{ScrollbarShow, ScrollableElement};
+use gpui_component::scroll::{ScrollableElement, ScrollbarShow};
 use gpui_component::theme::{Theme, ThemeMode};
+use gpui_component::{h_flex, init, v_flex, Root};
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 
 struct ScrollDemo {
     left_handle: ScrollHandle,
@@ -23,7 +23,8 @@ impl ScrollDemo {
             right_handle: ScrollHandle::new(),
             current_dir: env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             expanded_dirs: HashSet::new(),
-            active_file_content: "Click a file in the explorer to see its content here.".to_string(),
+            active_file_content: "Click a file in the explorer to see its content here."
+                .to_string(),
         }
     }
 
@@ -101,7 +102,9 @@ impl ScrollDemo {
                                     cx.listener({
                                         let entry_path_clone = entry_path.clone();
                                         move |_this, _, _, cx| {
-                                            if let Ok(content) = fs::read_to_string(&entry_path_clone) {
+                                            if let Ok(content) =
+                                                fs::read_to_string(&entry_path_clone)
+                                            {
                                                 _this.active_file_content = content;
                                                 cx.notify();
                                             }
@@ -129,7 +132,6 @@ impl ScrollDemo {
 
 impl Render for ScrollDemo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-
         let mut cloned_content = self.active_file_content.clone();
         let mut parts: Vec<&str> = cloned_content.split('\n').collect();
 
@@ -139,7 +141,6 @@ impl Render for ScrollDemo {
                 parts.extend_from_slice(&original);
             }
         }
-
 
         h_flex()
             .size_full()
@@ -160,12 +161,12 @@ impl Render for ScrollDemo {
                             .track_scroll(&self.left_handle)
                             .overflow_y_scroll()
                             .child(
-                                div()
-                                    .p_2()
-                                    .child(self.render_project_explorer(self.current_dir.clone(), cx))
-                            )
+                                div().p_2().child(
+                                    self.render_project_explorer(self.current_dir.clone(), cx),
+                                ),
+                            ),
                     )
-                    .vertical_scrollbar(&self.left_handle)
+                    .vertical_scrollbar(&self.left_handle),
             )
             .child(
                 // Right Pane (Code Editor)
@@ -180,8 +181,7 @@ impl Render for ScrollDemo {
                             .size_full()
                             .track_scroll(&self.right_handle)
                             .overflow_y_scroll()
-                            .children(
-                                (0..60).map(|i| {
+                            .children((0..60).map(|i| {
                                 div()
                                     .h(px(40.0))
                                     .px_4()
@@ -192,19 +192,16 @@ impl Render for ScrollDemo {
                                     .text_color(rgb(0xcccccc))
                                     // .font_family("Courier New")
                                     .child(format!("Yo{}: {}", i, parts[i]))
-                                })
-                            )
-
-//                            // .child(
-//                                // div()
-//                                    .p(px(16.0))
-//                                    .text_color(rgb(0xcccccc))
-//                                    .font_family("Courier New")
-//                                    .child(self.active_file_content.clone())
-//                                    .vertical_scrollbar(&self.right_handle)
-//                            // )
+                            })), //                            // .child(
+                                 //                                // div()
+                                 //                                    .p(px(16.0))
+                                 //                                    .text_color(rgb(0xcccccc))
+                                 //                                    .font_family("Courier New")
+                                 //                                    .child(self.active_file_content.clone())
+                                 //                                    .vertical_scrollbar(&self.right_handle)
+                                 //                            // )
                     )
-                    .vertical_scrollbar(&self.right_handle)
+                    .vertical_scrollbar(&self.right_handle),
             )
     }
 }
@@ -217,9 +214,9 @@ fn main() {
         Theme::change(ThemeMode::Dark, None, cx);
         let theme = cx.global_mut::<Theme>();
         theme.scrollbar_show = ScrollbarShow::Always;
-        theme.scrollbar_thumb = rgb(0xffffff).into();       // Solid White thumb
+        theme.scrollbar_thumb = rgb(0xffffff).into(); // Solid White thumb
         theme.scrollbar_thumb_hover = rgb(0xffffff).into(); // Keep white on hover/click
-        theme.scrollbar = rgb(0x444444).into();             // Dark Gray track
+        theme.scrollbar = rgb(0x444444).into(); // Dark Gray track
 
         let bounds = Bounds::centered(None, size(px(1024.0), px(768.0)), cx);
 
