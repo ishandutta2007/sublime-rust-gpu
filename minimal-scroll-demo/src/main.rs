@@ -6,12 +6,14 @@ use gpui_component::theme::{Theme, ThemeMode};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::env;
+use std::fs;
 
 struct ScrollDemo {
     left_handle: ScrollHandle,
     right_handle: ScrollHandle,
     current_dir: PathBuf,
     expanded_dirs: HashSet<PathBuf>,
+    active_file_content: String,
 }
 
 impl ScrollDemo {
@@ -21,6 +23,7 @@ impl ScrollDemo {
             right_handle: ScrollHandle::new(),
             current_dir: env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             expanded_dirs: HashSet::new(),
+            active_file_content: "Click a file in the explorer to see its content here.".to_string(),
         }
     }
 
@@ -92,6 +95,19 @@ impl ScrollDemo {
                                 .child(file_name)
                                 .text_color(rgb(0xaaaaaa))
                                 .hover(|s| s.bg(rgb(0x2d2d2d)))
+                                .cursor_pointer()
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener({
+                                        let entry_path_clone = entry_path.clone();
+                                        move |_this, _, _, cx| {
+                                            if let Ok(content) = fs::read_to_string(&entry_path_clone) {
+                                                _this.active_file_content = content;
+                                                cx.notify();
+                                            }
+                                        }
+                                    }),
+                                )
                                 .into_any_element(),
                         );
                     }
@@ -113,6 +129,18 @@ impl ScrollDemo {
 
 impl Render for ScrollDemo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+
+        let mut cloned_content = self.active_file_content.clone();
+        let mut parts: Vec<&str> = cloned_content.split('\n').collect();
+
+        if !parts.is_empty() {
+            let original = parts.clone();
+            while parts.len() < 60 {
+                parts.extend_from_slice(&original);
+            }
+        }
+
+
         h_flex()
             .size_full()
             .bg(rgb(0x181818))
@@ -140,7 +168,7 @@ impl Render for ScrollDemo {
                     .vertical_scrollbar(&self.left_handle)
             )
             .child(
-                // Right Pane
+                // Right Pane (Code Editor)
                 div()
                     .id("right-pane-wrapper")
                     .relative()
@@ -152,7 +180,8 @@ impl Render for ScrollDemo {
                             .size_full()
                             .track_scroll(&self.right_handle)
                             .overflow_y_scroll()
-                            .children((0..100).map(|i| {
+                            .children(
+                                (0..60).map(|i| {
                                 div()
                                     .h(px(40.0))
                                     .px_4()
@@ -161,8 +190,19 @@ impl Render for ScrollDemo {
                                     .border_b_1()
                                     .border_color(rgb(0x222222))
                                     .text_color(rgb(0xcccccc))
-                                    .child(format!("Right Item {}", i))
-                            }))
+                                    // .font_family("Courier New")
+                                    .child(format!("Yo{}: {}", i, parts[i]))
+                                })
+                            )
+
+//                            // .child(
+//                                // div()
+//                                    .p(px(16.0))
+//                                    .text_color(rgb(0xcccccc))
+//                                    .font_family("Courier New")
+//                                    .child(self.active_file_content.clone())
+//                                    .vertical_scrollbar(&self.right_handle)
+//                            // )
                     )
                     .vertical_scrollbar(&self.right_handle)
             )
