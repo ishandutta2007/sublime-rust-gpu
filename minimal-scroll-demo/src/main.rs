@@ -3,7 +3,7 @@ use gpui::*;
 use gpui_component::scroll::{ScrollableElement, ScrollbarShow};
 use gpui_component::theme::{Theme, ThemeMode};
 use gpui_component::{h_flex, init, v_flex, Root};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -13,7 +13,9 @@ struct ScrollDemo {
     right_handle: ScrollHandle,
     current_dir: PathBuf,
     expanded_dirs: HashSet<PathBuf>,
-    active_file_content: String,
+    open_tabs: Vec<PathBuf>,
+    active_tab_index: Option<usize>,
+    tab_contents: HashMap<PathBuf, String>,
 }
 
 impl ScrollDemo {
@@ -23,8 +25,9 @@ impl ScrollDemo {
             right_handle: ScrollHandle::new(),
             current_dir: env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             expanded_dirs: HashSet::new(),
-            active_file_content: "Click a file in the explorer to see its content here."
-                .to_string(),
+            open_tabs: Vec::new(),
+            active_tab_index: None,
+            tab_contents: HashMap::new(),
         }
     }
 
@@ -90,7 +93,6 @@ impl ScrollDemo {
                         );
                     } else {
                         // File entry
-                        let entry_path_clone = entry_path.clone();
                         children_elements.push(
                             div()
                                 .pl(px(16.0)) // Align with directory text
@@ -100,10 +102,20 @@ impl ScrollDemo {
                                 .cursor_pointer()
                                 .on_mouse_down(
                                     MouseButton::Left,
-                                    cx.listener(move |this, _, _, cx| {
-                                        if let Ok(content) = fs::read_to_string(&entry_path_clone) {
-                                            this.active_file_content = content;
-                                            this.right_handle.set_offset(Point::default());
+                                    cx.listener({
+                                        let entry_path_clone = entry_path.clone();
+                                        move |_this, _, _, cx| {
+                                            if let Some(pos) = _this.open_tabs.iter().position(|p| p == &entry_path_clone) {
+                                                _this.active_tab_index = Some(pos);
+                                            } else {
+                                                if let Ok(content) = fs::read_to_string(&entry_path_clone) {
+                                                    _this.tab_contents.insert(entry_path_clone.clone(), content);
+                                                    _this.open_tabs.push(entry_path_clone.clone());
+                                                    _this.active_tab_index = Some(_this.open_tabs.len() - 1);
+                                                }
+                                            }
+                                            _this.right_handle.set_offset(Point::default());
+                                            cx.stop_propagation();
                                             cx.notify();
                                         }
                                     }),
@@ -129,11 +141,12 @@ impl ScrollDemo {
 
 impl Render for ScrollDemo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Use absolute positioning for both panes so each has fully resolved pixel
-        // bounds at paint time. flex_1() defers size resolution to after layout,
-        // which means the scrollbar thumb has no height to paint into.
-        // With absolute positioning GPUI resolves left/right/top/bottom into pixel
-        // bounds before the paint pass runs, so the scrollbar renders correctly.
+        let active_content = self.active_tab_index
+            .and_then(|idx| self.open_tabs.get(idx))
+            .and_then(|path| self.tab_contents.get(path))
+            .map(|s| s.as_str())
+            .unwrap_or("Click a file in the explorer to see its content here.");
+
         div()
             .id("root")
             .relative()
@@ -165,40 +178,99 @@ impl Render for ScrollDemo {
                     .vertical_scrollbar(&self.left_handle),
             )
             .child(
-                // ── Right Pane (Code Editor) ─────────────────────────────────
-                // Also absolutely positioned: left edge is at 250px (after divider),
-                // right/top/bottom stretch to fill. These are pixel-resolved before
-                // the paint pass, so vertical_scrollbar() gets real bounds.
+                // ── Right Pane (Tabs + Code Editor) ──────────────────────────
                 div()
                     .id("right-pane-wrapper")
                     .absolute()
                     .top_0()
-                    .left(px(251.0)) // 250px left pane + 1px border
+                    .left(px(251.0))
                     .right_0()
                     .bottom_0()
+                    // ── Tab Bar ──────────────────────────────────────────
                     .child(
-                        v_flex()
-                            .id("right-scroll-area")
-                            .size_full()
-                            .track_scroll(&self.right_handle)
-                            .overflow_y_scroll()
-                            .child(
-                                v_flex().flex_none().p(px(16.0)).children(
-                                    self.active_file_content.lines().enumerate().map(
-                                        |(i, line)| {
-                                            div()
-                                                .id(i)
-                                                .flex_none()
-                                                .h(px(20.0))
-                                                .text_color(rgb(0xcccccc))
-                                                .font_family("Courier New")
-                                                .child(line.to_string())
-                                        },
-                                    ),
-                                ),
-                            ),
+                        h_flex()
+                            .bg(rgb(0x1e1e1e))
+                            .h(px(30.0))
+                            .overflow_x_hidden()
+                            .children(self.open_tabs.iter().enumerate().map(|(idx, path)| {
+                                let is_active = Some(idx) == self.active_tab_index;
+                                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string();
+                                let path_clone = path.clone();
+                                
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .px(px(10.0))
+                                    .h_full()
+                                    .bg(if is_active { rgb(0x232323) } else { rgb(0x181818) })
+                                    .border_r_1()
+                                    .border_color(rgb(0x333333))
+                                    .cursor_pointer()
+                                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                        this.active_tab_index = Some(idx);
+                                        this.right_handle.set_offset(Point::default());
+                                        cx.notify();
+                                    }))
+                                    .child(
+                                        div()
+                                            .text_size(px(12.0))
+                                            .text_color(if is_active { rgb(0xcccccc) } else { rgb(0x888888) })
+                                            .child(file_name)
+                                    )
+                                    .child(
+                                        div()
+                                            .ml(px(8.0))
+                                            .text_size(px(10.0))
+                                            .text_color(rgb(0x666666))
+                                            .hover(|s| s.text_color(rgb(0xcccccc)))
+                                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                                this.open_tabs.remove(idx);
+                                                this.tab_contents.remove(&path_clone);
+                                                if let Some(active_idx) = this.active_tab_index {
+                                                    if active_idx >= this.open_tabs.len() {
+                                                        this.active_tab_index = if this.open_tabs.is_empty() { None } else { Some(this.open_tabs.len() - 1) };
+                                                    }
+                                                }
+                                                cx.stop_propagation();
+                                                cx.notify();
+                                            }))
+                                            .child("✕")
+                                    )
+                            })),
                     )
-                    .vertical_scrollbar(&self.right_handle),
+                    // ── Editor Area ──────────────────────────────────────
+                    .child(
+                        div()
+                            .id("editor-area-wrapper")
+                            .absolute()
+                            .top(px(30.0))
+                            .bottom_0()
+                            .left_0()
+                            .right_0()
+                            .child(
+                                v_flex()
+                                    .id("right-scroll-area")
+                                    .size_full()
+                                    .track_scroll(&self.right_handle)
+                                    .overflow_y_scroll()
+                                    .child(
+                                        v_flex().flex_none().p(px(16.0)).children(
+                                            active_content.lines().enumerate().map(
+                                                |(i, line)| {
+                                                    div()
+                                                        .id(i)
+                                                        .flex_none()
+                                                        .h(px(20.0))
+                                                        .text_color(rgb(0xcccccc))
+                                                        .font_family("Courier New")
+                                                        .child(line.to_string())
+                                                },
+                                            ),
+                                        ),
+                                    ),
+                            )
+                            .vertical_scrollbar(&self.right_handle)
+                    )
             )
     }
 }
