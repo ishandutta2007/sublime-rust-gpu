@@ -8,7 +8,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-actions!(sublime_rust, [Quit]);
+actions!(sublime_rust, [Quit, Save, SaveAs, SaveAll]);
 
 // ── Menu state ────────────────────────────────────────────────────────────────
 
@@ -29,19 +29,32 @@ enum OpenMenu {
 
 // ── MenuItem ──────────────────────────────────────────────────────────────────
 
-#[derive(Clone)]
 struct MenuItem {
     label: &'static str,
     shortcut: Option<&'static str>,
+    action: Box<dyn Action>,
     is_separator: bool,
     has_arrow: bool,
 }
 
+impl Clone for MenuItem {
+    fn clone(&self) -> Self {
+        Self {
+            label: self.label,
+            shortcut: self.shortcut,
+            action: self.action.boxed_clone(),
+            is_separator: self.is_separator,
+            has_arrow: self.has_arrow,
+        }
+    }
+}
+
 impl MenuItem {
-    fn item(label: &'static str, shortcut: Option<&'static str>) -> Self {
+    fn item(label: &'static str, shortcut: Option<&'static str>, action: impl Action) -> Self {
         Self {
             label,
             shortcut,
+            action: action.boxed_clone(),
             is_separator: false,
             has_arrow: false,
         }
@@ -50,6 +63,7 @@ impl MenuItem {
         Self {
             label: "",
             shortcut: None,
+            action: Quit.boxed_clone(),
             is_separator: true,
             has_arrow: false,
         }
@@ -58,6 +72,7 @@ impl MenuItem {
         Self {
             label,
             shortcut: None,
+            action: Quit.boxed_clone(),
             is_separator: false,
             has_arrow: true,
         }
@@ -66,155 +81,115 @@ impl MenuItem {
 
 fn file_menu_items() -> Vec<MenuItem> {
     vec![
-        MenuItem::item("New File", Some("Ctrl+N")),
+        MenuItem::item("New File", Some("Ctrl+N"), Save),
         MenuItem::sep(),
-        MenuItem::item("Open File...", Some("Ctrl+O")),
-        MenuItem::item("Open Folder...", None),
+        MenuItem::item("Open File...", Some("Ctrl+O"), Save),
+        MenuItem::item("Open Folder...", None, Save),
         MenuItem::submenu("Open Recent"),
         MenuItem::sep(),
-        MenuItem::item("Reopen Closed File", None),
-        MenuItem::item("New View into File", None),
+        MenuItem::item("Reopen Closed File", None, Save),
+        MenuItem::item("New View into File", None, Save),
         MenuItem::sep(),
-        MenuItem::item("Save", Some("Ctrl+S")),
-        MenuItem::item("Save As...", None),
-        MenuItem::item("Save All", None),
+        MenuItem::item("Save", Some("Ctrl+S"), Save),
+        MenuItem::item("Save As...", Some("Ctrl+Shift+S"), SaveAs),
+        MenuItem::item("Save All", None, SaveAll),
         MenuItem::sep(),
-        MenuItem::item("Reload from Disk", None),
+        MenuItem::item("Reload from Disk", None, Save),
         MenuItem::sep(),
-        MenuItem::item("Close View", Some("Ctrl+W")),
-        MenuItem::item("Close File", None),
+        MenuItem::item("Close View", Some("Ctrl+W"), Quit),
+        MenuItem::item("Close File", None, Quit),
         MenuItem::sep(),
         if cfg!(target_os = "macos") {
-            MenuItem::item("Quit", Some("Cmd+Q"))
+            MenuItem::item("Quit", Some("Cmd+Q"), Quit)
         } else {
-            MenuItem::item("Exit", Some("Alt+F4"))
+            MenuItem::item("Exit", Some("Alt+F4"), Quit)
         },
-    ]
-}
-
-fn edit_menu_items() -> Vec<MenuItem> {
-    vec![
-        MenuItem::item("Undo", Some("Ctrl+Z")),
-        MenuItem::item("Redo", Some("Ctrl+Y")),
-        MenuItem::sep(),
-        MenuItem::item("Copy", Some("Ctrl+C")),
-        MenuItem::item("Cut", Some("Ctrl+X")),
-        MenuItem::item("Paste", Some("Ctrl+V")),
-        MenuItem::sep(),
-        MenuItem::submenu("Line"),
-        MenuItem::submenu("Comment"),
-        MenuItem::submenu("Text"),
-        MenuItem::submenu("Tag"),
-    ]
-}
-
-fn selection_menu_items() -> Vec<MenuItem> {
-    vec![
-        MenuItem::item("Select All", Some("Ctrl+A")),
-        MenuItem::item("Expand Selection", Some("Ctrl+L")),
-        MenuItem::sep(),
-        MenuItem::item("Add Next Line", Some("Ctrl+Alt+Down")),
-        MenuItem::item("Add Previous Line", Some("Ctrl+Alt+Up")),
-    ]
-}
-
-fn find_menu_items() -> Vec<MenuItem> {
-    vec![
-        MenuItem::item("Find...", Some("Ctrl+F")),
-        MenuItem::item("Find Next", Some("F3")),
-        MenuItem::item("Find Previous", Some("Shift+F3")),
-        MenuItem::item("Replace...", Some("Ctrl+H")),
-        MenuItem::sep(),
-        MenuItem::item("Find in Files...", Some("Ctrl+Shift+F")),
-    ]
-}
-
-fn view_menu_items() -> Vec<MenuItem> {
-    vec![
-        MenuItem::submenu("Side Bar"),
-        MenuItem::submenu("Show Console"),
-        MenuItem::sep(),
-        MenuItem::submenu("Layout"),
-        MenuItem::submenu("Groups"),
-    ]
-}
-
-fn goto_menu_items() -> Vec<MenuItem> {
-    vec![
-        MenuItem::item("Goto Anything...", Some("Ctrl+P")),
-        MenuItem::sep(),
-        MenuItem::item("Goto Symbol...", Some("Ctrl+R")),
-        MenuItem::item("Goto Line...", Some("Ctrl+G")),
-    ]
-}
-
-fn tools_menu_items() -> Vec<MenuItem> {
-    vec![
-        MenuItem::item("Command Palette...", Some("Ctrl+Shift+P")),
-        MenuItem::sep(),
-        MenuItem::submenu("Build System"),
-        MenuItem::item("Build", Some("Ctrl+B")),
-    ]
-}
-
-fn project_menu_items() -> Vec<MenuItem> {
-    vec![
-        MenuItem::item("Open Project...", None),
-        MenuItem::submenu("Recent Projects"),
-        MenuItem::sep(),
-        MenuItem::item("Save Project As...", None),
-    ]
-}
-
-fn preferences_menu_items() -> Vec<MenuItem> {
-    vec![
-        MenuItem::item("Settings", None),
-        MenuItem::item("Key Bindings", None),
-        MenuItem::sep(),
-        MenuItem::submenu("Color Scheme"),
-        MenuItem::submenu("Theme"),
-    ]
-}
-
-fn help_menu_items() -> Vec<MenuItem> {
-    vec![
-        MenuItem::item("Documentation", None),
-        MenuItem::item("Twitter", None),
-        MenuItem::sep(),
-        MenuItem::item("About Sublime Text", None),
     ]
 }
 
 struct ScrollDemo {
     left_handle: ScrollHandle,
     right_handle: ScrollHandle,
+    focus_handle: FocusHandle,
     current_dir: PathBuf,
     expanded_dirs: HashSet<PathBuf>,
     open_tabs: Vec<PathBuf>,
     active_tab_index: Option<usize>,
-    tab_contents: HashMap<PathBuf, String>,
+    tab_contents: HashMap<PathBuf, Vec<String>>,
+    dirty_tabs: HashSet<PathBuf>,
     open_menu: OpenMenu,
     sidebar_width: f32,
     is_dragging_sidebar: bool,
+    cursor_row: usize,
+    cursor_col: usize,
 }
 
 impl ScrollDemo {
-    fn new() -> Self {
+    fn new(cx: &mut Context<Self>) -> Self {
         Self {
             left_handle: ScrollHandle::new(),
             right_handle: ScrollHandle::new(),
+            focus_handle: cx.focus_handle(),
             current_dir: env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             expanded_dirs: HashSet::new(),
             open_tabs: Vec::new(),
             active_tab_index: None,
             tab_contents: HashMap::new(),
+            dirty_tabs: HashSet::new(),
             open_menu: OpenMenu::None,
             sidebar_width: 250.0,
             is_dragging_sidebar: false,
+            cursor_row: 0,
+            cursor_col: 0,
         }
     }
 
-    /// Recursively renders the project explorer tree.
+    fn save_active(&mut self, cx: &mut Context<Self>) {
+        if let Some(idx) = self.active_tab_index {
+            if let Some(path) = self.open_tabs.get(idx).cloned() {
+                if let Some(lines) = self.tab_contents.get(&path) {
+                    let content = lines.join("\n");
+                    if fs::write(&path, content).is_ok() {
+                        self.dirty_tabs.remove(&path);
+                        eprintln!("Saved: {:?}", path);
+                        cx.notify();
+                    }
+                }
+            }
+        }
+    }
+
+    fn save_as(&mut self, cx: &mut Context<Self>) {
+        if let Some(idx) = self.active_tab_index {
+            if let Some(path) = self.open_tabs.get(idx).cloned() {
+                if let Some(lines) = self.tab_contents.get(&path) {
+                    let mut new_path = path.clone();
+                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+                    new_path.set_file_name(format!("{}_copy.txt", stem));
+                    let content = lines.join("\n");
+                    if fs::write(&new_path, content).is_ok() {
+                        eprintln!("Saved As: {:?}", new_path);
+                        cx.notify();
+                    }
+                }
+            }
+        }
+    }
+
+    fn save_all(&mut self, cx: &mut Context<Self>) {
+        let paths: Vec<PathBuf> = self.dirty_tabs.iter().cloned().collect();
+        for path in paths {
+            if let Some(lines) = self.tab_contents.get(&path) {
+                let content = lines.join("\n");
+                if fs::write(&path, content).is_ok() {
+                    self.dirty_tabs.remove(&path);
+                    eprintln!("Saved (All): {:?}", path);
+                }
+            }
+        }
+        cx.notify();
+    }
+
     fn render_project_explorer(&self, path: PathBuf, cx: &mut Context<Self>) -> impl IntoElement {
         let is_expanded = self.expanded_dirs.contains(&path);
         let dir_name = path
@@ -275,11 +250,9 @@ impl ScrollDemo {
                                 .into_any_element(),
                         );
                     } else {
-                        // File entry
-                        let _entry_path_clone = entry_path.clone();
                         children_elements.push(
                             div()
-                                .pl(px(16.0)) // Align with directory text
+                                .pl(px(16.0))
                                 .child(file_name)
                                 .text_color(rgb(0xaaaaaa))
                                 .hover(|s| s.bg(rgb(0x2d2d2d)))
@@ -287,18 +260,22 @@ impl ScrollDemo {
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener({
-                                        let _entry_path_clone = entry_path.clone();
-                                        move |_this, _, _, cx| {
-                                            if let Some(pos) = _this.open_tabs.iter().position(|p| p == &_entry_path_clone) {
-                                                _this.active_tab_index = Some(pos);
+                                        let entry_path_clone = entry_path.clone();
+                                        move |this, _, window, cx| {
+                                            if let Some(pos) = this.open_tabs.iter().position(|p| p == &entry_path_clone) {
+                                                this.active_tab_index = Some(pos);
                                             } else {
-                                                if let Ok(content) = fs::read_to_string(&_entry_path_clone) {
-                                                    _this.tab_contents.insert(_entry_path_clone.clone(), content);
-                                                    _this.open_tabs.push(_entry_path_clone.clone());
-                                                    _this.active_tab_index = Some(_this.open_tabs.len() - 1);
+                                                if let Ok(content) = fs::read_to_string(&entry_path_clone) {
+                                                    let lines = content.lines().map(|s| s.to_string()).collect();
+                                                    this.tab_contents.insert(entry_path_clone.clone(), lines);
+                                                    this.open_tabs.push(entry_path_clone.clone());
+                                                    this.active_tab_index = Some(this.open_tabs.len() - 1);
                                                 }
                                             }
-                                            _this.right_handle.set_offset(Point::default());
+                                            this.cursor_row = 0;
+                                            this.cursor_col = 0;
+                                            this.right_handle.set_offset(Point::default());
+                                            window.focus(&this.focus_handle);
                                             cx.stop_propagation();
                                             cx.notify();
                                         }
@@ -316,7 +293,7 @@ impl ScrollDemo {
             .when(!children_elements.is_empty(), |el| {
                 el.child(
                     v_flex()
-                        .pl(px(12.0)) // Indent nested children
+                        .pl(px(12.0))
                         .children(children_elements),
                 )
             })
@@ -325,11 +302,12 @@ impl ScrollDemo {
 
 impl Render for ScrollDemo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let active_content = self.active_tab_index
+        let is_focused = _window.focused(cx) == Some(self.focus_handle.clone());
+        let active_lines = self.active_tab_index
             .and_then(|idx| self.open_tabs.get(idx))
             .and_then(|path| self.tab_contents.get(path))
-            .map(|s| s.as_str())
-            .unwrap_or("Click a file in the explorer to see its content here.");
+            .cloned()
+            .unwrap_or_else(|| vec!["Click a file in the explorer to see its content here.".to_string()]);
 
         let menu_bar_labels: &[(&str, OpenMenu)] = &[
             ("File", OpenMenu::File),
@@ -351,15 +329,14 @@ impl Render for ScrollDemo {
             .relative()
             .size_full()
             .bg(rgb(0x181818))
+            .on_action(cx.listener(|this, _action: &Save, _window, cx| this.save_active(cx)))
+            .on_action(cx.listener(|this, _action: &SaveAs, _window, cx| this.save_as(cx)))
+            .on_action(cx.listener(|this, _action: &SaveAll, _window, cx| this.save_all(cx)))
+            .on_action(cx.listener(|_this, _action: &Quit, _window, cx| cx.quit()))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
                 if this.is_dragging_sidebar {
                     this.sidebar_width = event.position.x.into();
-                    if this.sidebar_width < 50.0 {
-                        this.sidebar_width = 50.0;
-                    }
-                    if this.sidebar_width > 600.0 {
-                        this.sidebar_width = 600.0;
-                    }
+                    this.sidebar_width = this.sidebar_width.clamp(50.0, 600.0);
                     cx.notify();
                 }
             }))
@@ -372,7 +349,6 @@ impl Render for ScrollDemo {
                     }
                 }),
             )
-            // ── Menu Bar ──────────────────────────────────────────────────
             .child(
                 h_flex()
                     .bg(rgb(0x1e1e1e))
@@ -385,33 +361,20 @@ impl Render for ScrollDemo {
                             .px_3()
                             .py_1()
                             .text_size(px(12.0))
-                            .text_color(if is_open {
-                                rgb(0xffffff)
-                            } else {
-                                rgb(0xcccccc)
-                            })
-                            .bg(if is_open {
-                                rgb(0x3e3e3e)
-                            } else {
-                                rgb(0x1e1e1e)
-                            })
+                            .text_color(if is_open { rgb(0xffffff) } else { rgb(0xcccccc) })
+                            .bg(if is_open { rgb(0x3e3e3e) } else { rgb(0x1e1e1e) })
                             .hover(|s| s.bg(rgb(0x3e3e3e)).text_color(rgb(0xcccccc)))
                             .cursor_pointer()
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |_this, _, _, cx| {
-                                    _this.open_menu = if _this.open_menu == variant {
-                                        OpenMenu::None
-                                    } else {
-                                        variant.clone()
-                                    };
+                                    _this.open_menu = if _this.open_menu == variant { OpenMenu::None } else { variant.clone() };
                                     cx.notify();
                                 }),
                             )
                             .child(*label)
                     })),
             )
-            // ── Main Content Area ─────────────────────────────────────────
             .child(
                 div()
                     .absolute()
@@ -420,7 +383,6 @@ impl Render for ScrollDemo {
                     .left_0()
                     .right_0()
                     .child(
-                        // ── Left Pane (Project Explorer) ─────────────────────────────
                         div()
                             .id("left-pane-wrapper")
                             .absolute()
@@ -442,7 +404,6 @@ impl Render for ScrollDemo {
                             )
                             .vertical_scrollbar(&self.left_handle),
                     )
-                    // ── Separator ────────────────────────────────────────────────
                     .child(
                         div()
                             .id("separator")
@@ -453,24 +414,19 @@ impl Render for ScrollDemo {
                             .bottom_0()
                             .bg(rgb(0x333333))
                             .cursor_col_resize()
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(|this, _, _window, cx| {
-                                    this.is_dragging_sidebar = true;
-                                    cx.notify();
-                                }),
-                            ),
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _window, cx| {
+                                this.is_dragging_sidebar = true;
+                                cx.notify();
+                            })),
                     )
                     .child(
-                        // ── Right Pane (Tabs + Code Editor) ──────────────────────────
                         div()
                             .id("right-pane-wrapper")
                             .absolute()
                             .top_0()
-                            .left(px(self.sidebar_width + 2.0))
+                            .left(px(self.sidebar_width + 5.0))
                             .right_0()
                             .bottom_0()
-                            // ── Tab Bar ──────────────────────────────────────────
                             .child(
                                 h_flex()
                                     .bg(rgb(0x1e1e1e))
@@ -478,38 +434,27 @@ impl Render for ScrollDemo {
                                     .overflow_x_hidden()
                                     .children(self.open_tabs.iter().enumerate().map(|(idx, path)| {
                                         let is_active = Some(idx) == self.active_tab_index;
-                                        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string();
+                                        let mut file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string();
+                                        if self.dirty_tabs.contains(path) { file_name.push('*'); }
                                         let path_clone = path.clone();
-                                        
                                         div()
-                                            .flex()
-                                            .items_center()
-                                            .px(px(10.0))
-                                            .h_full()
+                                            .flex().items_center().px(px(10.0)).h_full()
                                             .bg(if is_active { rgb(0x232323) } else { rgb(0x181818) })
-                                            .border_r_1()
-                                            .border_color(rgb(0x333333))
+                                            .border_r_1().border_color(rgb(0x333333))
                                             .cursor_pointer()
-                                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
                                                 this.active_tab_index = Some(idx);
                                                 this.right_handle.set_offset(Point::default());
+                                                window.focus(&this.focus_handle);
                                                 cx.notify();
                                             }))
+                                            .child(div().text_size(px(12.0)).text_color(if is_active { rgb(0xcccccc) } else { rgb(0x888888) }).child(file_name))
                                             .child(
-                                                div()
-                                                    .text_size(px(12.0))
-                                                    .text_color(if is_active { rgb(0xcccccc) } else { rgb(0x888888) })
-                                                    .child(file_name)
-                                            )
-                                            .child(
-                                                div()
-                                                    .ml(px(8.0))
-                                                    .text_size(px(10.0))
-                                                    .text_color(rgb(0x666666))
-                                                    .hover(|s| s.text_color(rgb(0xcccccc)))
+                                                div().ml(px(8.0)).text_size(px(10.0)).text_color(rgb(0x666666)).hover(|s| s.text_color(rgb(0xcccccc)))
                                                     .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                                                         this.open_tabs.remove(idx);
                                                         this.tab_contents.remove(&path_clone);
+                                                        this.dirty_tabs.remove(&path_clone);
                                                         if let Some(active_idx) = this.active_tab_index {
                                                             if active_idx >= this.open_tabs.len() {
                                                                 this.active_tab_index = if this.open_tabs.is_empty() { None } else { Some(this.open_tabs.len() - 1) };
@@ -522,7 +467,6 @@ impl Render for ScrollDemo {
                                             )
                                     })),
                             )
-                            // ── Editor Area ──────────────────────────────────────
                             .child(
                                 div()
                                     .id("editor-area-wrapper")
@@ -531,6 +475,76 @@ impl Render for ScrollDemo {
                                     .bottom_0()
                                     .left_0()
                                     .right_0()
+                                    .border_1()
+                                    .border_color(if is_focused { rgb(0x094771) } else { rgb(0x333333) })
+                                    .track_focus(&self.focus_handle)
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
+                                        window.focus(&this.focus_handle);
+                                        cx.notify();
+                                    }))
+                                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                                        if event.keystroke.modifiers.platform || event.keystroke.modifiers.control { return; }
+                                        if let Some(idx) = this.active_tab_index {
+                                            let path = this.open_tabs[idx].clone();
+                                            if let Some(lines) = this.tab_contents.get_mut(&path) {
+                                                match event.keystroke.key.as_str() {
+                                                    "backspace" => {
+                                                        if this.cursor_col > 0 {
+                                                            lines[this.cursor_row].remove(this.cursor_col - 1);
+                                                            this.cursor_col -= 1;
+                                                        } else if this.cursor_row > 0 {
+                                                            let current_line = lines.remove(this.cursor_row);
+                                                            this.cursor_row -= 1;
+                                                            this.cursor_col = lines[this.cursor_row].len();
+                                                            lines[this.cursor_row].push_str(&current_line);
+                                                        }
+                                                    }
+                                                    "enter" => {
+                                                        let current_line = &mut lines[this.cursor_row];
+                                                        let new_line = current_line.split_off(this.cursor_col);
+                                                        lines.insert(this.cursor_row + 1, new_line);
+                                                        this.cursor_row += 1;
+                                                        this.cursor_col = 0;
+                                                    }
+                                                    "left" => {
+                                                        if this.cursor_col > 0 { this.cursor_col -= 1; }
+                                                        else if this.cursor_row > 0 {
+                                                            this.cursor_row -= 1;
+                                                            this.cursor_col = lines[this.cursor_row].len();
+                                                        }
+                                                    }
+                                                    "right" => {
+                                                        if this.cursor_col < lines[this.cursor_row].len() { this.cursor_col += 1; }
+                                                        else if this.cursor_row < lines.len() - 1 {
+                                                            this.cursor_row += 1;
+                                                            this.cursor_col = 0;
+                                                        }
+                                                    }
+                                                    "up" => {
+                                                        if this.cursor_row > 0 {
+                                                            this.cursor_row -= 1;
+                                                            this.cursor_col = this.cursor_col.min(lines[this.cursor_row].len());
+                                                        }
+                                                    }
+                                                    "down" => {
+                                                        if this.cursor_row < lines.len() - 1 {
+                                                            this.cursor_row += 1;
+                                                            this.cursor_col = this.cursor_col.min(lines[this.cursor_row].len());
+                                                        }
+                                                    }
+                                                    "space" => { lines[this.cursor_row].insert(this.cursor_col, ' '); this.cursor_col += 1; }
+                                                    "tab" => { lines[this.cursor_row].insert_str(this.cursor_col, "    "); this.cursor_col += 4; }
+                                                    key if key.len() == 1 => {
+                                                        lines[this.cursor_row].insert_str(this.cursor_col, key);
+                                                        this.cursor_col += 1;
+                                                    }
+                                                    _ => {}
+                                                }
+                                                this.dirty_tabs.insert(path);
+                                                cx.notify();
+                                            }
+                                        }
+                                    }))
                                     .child(
                                         v_flex()
                                             .id("right-scroll-area")
@@ -539,17 +553,29 @@ impl Render for ScrollDemo {
                                             .overflow_y_scroll()
                                             .child(
                                                 v_flex().flex_none().p(px(16.0)).children(
-                                                    active_content.lines().enumerate().map(
-                                                        |(i, line)| {
-                                                            div()
-                                                                .id(i)
-                                                                .flex_none()
-                                                                .h(px(20.0))
-                                                                .text_color(rgb(0xcccccc))
-                                                                .font_family("Courier New")
-                                                                .child(line.to_string())
-                                                        },
-                                                    ),
+                                                    active_lines.into_iter().enumerate().map(|(i, line)| {
+                                                        let is_cursor_row = is_focused && Some(i) == Some(self.cursor_row);
+                                                        let mut line_text = line.clone();
+                                                        if is_cursor_row {
+                                                            if self.cursor_col <= line_text.len() {
+                                                                line_text.insert(self.cursor_col, '|');
+                                                            } else {
+                                                                line_text.push('|');
+                                                            }
+                                                        }
+                                                        div()
+                                                            .id(i)
+                                                            .flex_none()
+                                                            .h(px(20.0))
+                                                            .text_color(rgb(0xcccccc))
+                                                            .font_family("Courier New")
+                                                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                                                this.cursor_row = i;
+                                                                this.cursor_col = this.tab_contents.get(&this.open_tabs[this.active_tab_index.unwrap()]).map(|l| l[i].len()).unwrap_or(0);
+                                                                cx.notify();
+                                                            }))
+                                                            .child(line_text)
+                                                    }),
                                                 ),
                                             ),
                                     )
@@ -557,97 +583,27 @@ impl Render for ScrollDemo {
                             )
                     )
             )
-            // ── Dropdown Overlays ─────────────────────────────────────────
             .when(self.open_menu != OpenMenu::None, |el| {
-                let items = match &self.open_menu {
-                    OpenMenu::File => file_menu_items(),
-                    OpenMenu::Edit => edit_menu_items(),
-                    OpenMenu::Selection => selection_menu_items(),
-                    OpenMenu::Find => find_menu_items(),
-                    OpenMenu::View => view_menu_items(),
-                    OpenMenu::Goto => goto_menu_items(),
-                    OpenMenu::Tools => tools_menu_items(),
-                    OpenMenu::Project => project_menu_items(),
-                    OpenMenu::Preferences => preferences_menu_items(),
-                    OpenMenu::Help => help_menu_items(),
-                    OpenMenu::None => vec![],
-                };
-
+                let items = match &self.open_menu { OpenMenu::File => file_menu_items(), _ => vec![] };
                 let mut dropdown_left = 0.0f32;
                 let btn_width = |label: &str| label.len() as f32 * 8.0 + 24.0;
-                
                 for (label, variant) in menu_bar_labels.iter() {
-                    if variant == &self.open_menu {
-                        break;
-                    }
+                    if variant == &self.open_menu { break; }
                     dropdown_left += btn_width(label);
                 }
-
-                el
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .size_full()
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(|_this, _, _, cx| {
-                                    _this.open_menu = OpenMenu::None;
-                                    cx.notify();
-                                }),
-                            ),
-                    )
-                    .child(
-                        v_flex()
-                            .absolute()
-                            .top(px(menu_bar_h))
-                            .left(px(dropdown_left))
-                            .w(px(270.0))
-                            .bg(rgb(0x2d2d2d))
-                            .border_1()
-                            .border_color(rgb(0x454545))
-                            .shadow_lg()
-                            .py(px(4.0))
-                            .children(items.into_iter().map(|item| {
-                                if item.is_separator {
-                                    div()
-                                        .h(px(1.0))
-                                        .my(px(3.0))
-                                        .mx(px(8.0))
-                                        .bg(rgb(0x444444))
-                                        .into_any_element()
-                                } else {
-                                    h_flex()
-                                        .justify_between()
-                                        .items_center()
-                                        .px(px(12.0))
-                                        .py(px(3.0))
-                                        .text_size(px(12.0))
-                                        .text_color(rgb(0xcccccc))
-                                        .hover(|s| s.bg(rgb(0x094771)).text_color(rgb(0xffffff)))
-                                        .cursor_pointer()
-                                        .child(item.label)
-                                        .when(item.has_arrow, |el| {
-                                            el.child(
-                                                div()
-                                                    .text_size(px(10.0))
-                                                    .text_color(rgb(0x888888))
-                                                    .child("▶"),
-                                            )
-                                        })
-                                        .when_some(item.shortcut, |el, sc| {
-                                            el.child(
-                                                div()
-                                                    .text_size(px(11.0))
-                                                    .text_color(rgb(0x888888))
-                                                    .child(sc),
-                                            )
-                                        })
-                                        .into_any_element()
-                                }
-                            })),
-                    )
+                el.child(div().absolute().top_0().left_0().size_full().on_mouse_down(MouseButton::Left, cx.listener(|_this, _, _, cx| { _this.open_menu = OpenMenu::None; cx.notify(); })))
+                  .child(v_flex().absolute().top(px(menu_bar_h)).left(px(dropdown_left)).w(px(270.0)).bg(rgb(0x2d2d2d)).border_1().border_color(rgb(0x454545)).shadow_lg().py(px(4.0)).children(items.into_iter().map(|item| {
+                      if item.is_separator { div().h(px(1.0)).my(px(3.0)).mx(px(8.0)).bg(rgb(0x444444)).into_any_element() }
+                      else {
+                          let action = item.action.boxed_clone();
+                          h_flex().justify_between().items_center().px(px(12.0)).py(px(3.0)).text_size(px(12.0)).text_color(rgb(0xcccccc)).hover(|s| s.bg(rgb(0x094771)).text_color(rgb(0xffffff))).cursor_pointer()
+                                  .on_mouse_down(MouseButton::Left, cx.listener(move |_, _, _, cx| { cx.dispatch_action(action.as_ref()); }))
+                                  .child(item.label)
+                                  .when(item.has_arrow, |el| el.child(div().text_size(px(10.0)).text_color(rgb(0x888888)).child("▶")))
+                                  .when_some(item.shortcut, |el, sc| el.child(div().text_size(px(10.0)).text_color(rgb(0x888888)).child(sc)))
+                                  .into_any_element()
+                      }
+                  })))
             })
     }
 }
@@ -655,27 +611,26 @@ impl Render for ScrollDemo {
 fn main() {
     Application::new().run(|cx: &mut App| {
         init(cx);
+        
+        cx.bind_keys([
+            KeyBinding::new("cmd-s", Save, None),
+            KeyBinding::new("ctrl-s", Save, None),
+            KeyBinding::new("cmd-shift-s", SaveAs, None),
+            KeyBinding::new("ctrl-shift-s", SaveAs, None),
+            KeyBinding::new("cmd-q", Quit, None),
+            KeyBinding::new("ctrl-q", Quit, None),
+        ]);
 
-        // Force persistent white scrollbars
         Theme::change(ThemeMode::Dark, None, cx);
         let theme = cx.global_mut::<Theme>();
         theme.scrollbar_show = ScrollbarShow::Always;
         theme.scrollbar_thumb = rgb(0xffffff).into(); 
         theme.scrollbar_thumb_hover = rgb(0xffffff).into(); 
         theme.scrollbar = rgb(0x2a2a2a).into(); 
-
         let bounds = Bounds::centered(None, size(px(1024.0), px(768.0)), cx);
-
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..Default::default()
-            },
-            |window, cx| {
-                let view = cx.new(|_| ScrollDemo::new());
-                cx.new(|cx| Root::new(view, window, cx))
-            },
-        )
-        .expect("failed to open window");
+        cx.open_window(WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() }, |window, cx| {
+            let view = cx.new(|cx| ScrollDemo::new(cx));
+            cx.new(|cx| Root::new(view, window, cx))
+        }).expect("failed to open window");
     });
 }
