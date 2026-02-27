@@ -8,6 +8,11 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{Style, ThemeSet};
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
+
 actions!(sublime_rust, [Quit, Save, SaveAs, SaveAll]);
 
 // ── Menu state ────────────────────────────────────────────────────────────────
@@ -122,6 +127,11 @@ struct ScrollDemo {
     is_dragging_sidebar: bool,
     cursor_row: usize,
     cursor_col: usize,
+
+    // Syntect state
+    syntax_set: SyntaxSet,
+    theme_set: ThemeSet,
+    current_syntax_name: String,
 }
 
 impl ScrollDemo {
@@ -141,7 +151,22 @@ impl ScrollDemo {
             is_dragging_sidebar: false,
             cursor_row: 0,
             cursor_col: 0,
+            syntax_set: SyntaxSet::load_defaults_newlines(),
+            theme_set: ThemeSet::load_defaults(),
+            current_syntax_name: "Plain Text".to_string(),
         }
+    }
+
+    fn update_syntax(&mut self) {
+        if let Some(idx) = self.active_tab_index {
+            if let Some(path) = self.open_tabs.get(idx) {
+                if let Some(syntax) = self.syntax_set.find_syntax_for_file(path).unwrap_or(None) {
+                    self.current_syntax_name = syntax.name.clone();
+                    return;
+                }
+            }
+        }
+        self.current_syntax_name = "Plain Text".to_string();
     }
 
     fn save_active(&mut self, cx: &mut Context<Self>) {
@@ -272,6 +297,7 @@ impl ScrollDemo {
                                                     this.active_tab_index = Some(this.open_tabs.len() - 1);
                                                 }
                                             }
+                                            this.update_syntax();
                                             this.cursor_row = 0;
                                             this.cursor_col = 0;
                                             this.right_handle.set_offset(Point::default());
@@ -309,6 +335,14 @@ impl Render for ScrollDemo {
             .cloned()
             .unwrap_or_else(|| vec!["Click a file in the explorer to see its content here.".to_string()]);
 
+        let syntax = self.active_tab_index
+            .and_then(|idx| self.open_tabs.get(idx))
+            .and_then(|path| self.syntax_set.find_syntax_for_file(path).ok().flatten())
+            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
+
+        let theme = &self.theme_set.themes["base16-ocean.dark"];
+        let mut highlighter = HighlightLines::new(syntax, theme);
+
         let menu_bar_labels: &[(&str, OpenMenu)] = &[
             ("File", OpenMenu::File),
             ("Edit", OpenMenu::Edit),
@@ -323,6 +357,7 @@ impl Render for ScrollDemo {
         ];
 
         let menu_bar_h = 26.0f32;
+        let footer_h = 22.0f32;
 
         div()
             .id("root")
@@ -379,7 +414,7 @@ impl Render for ScrollDemo {
                 div()
                     .absolute()
                     .top(px(menu_bar_h))
-                    .bottom_0()
+                    .bottom(px(footer_h))
                     .left_0()
                     .right_0()
                     .child(
@@ -444,6 +479,7 @@ impl Render for ScrollDemo {
                                             .cursor_pointer()
                                             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
                                                 this.active_tab_index = Some(idx);
+                                                this.update_syntax();
                                                 this.right_handle.set_offset(Point::default());
                                                 window.focus(&this.focus_handle);
                                                 cx.notify();
@@ -460,6 +496,7 @@ impl Render for ScrollDemo {
                                                                 this.active_tab_index = if this.open_tabs.is_empty() { None } else { Some(this.open_tabs.len() - 1) };
                                                             }
                                                         }
+                                                        this.update_syntax();
                                                         cx.stop_propagation();
                                                         cx.notify();
                                                     }))
@@ -555,26 +592,53 @@ impl Render for ScrollDemo {
                                                 v_flex().flex_none().p(px(16.0)).children(
                                                     active_lines.into_iter().enumerate().map(|(i, line)| {
                                                         let is_cursor_row = is_focused && Some(i) == Some(self.cursor_row);
-                                                        let mut line_text = line.clone();
-                                                        if is_cursor_row {
-                                                            if self.cursor_col <= line_text.len() {
-                                                                line_text.insert(self.cursor_col, '|');
+                                                        
+                                                        // Apply Syntax Highlighting
+                                                        let ranges: Vec<(Style, &str)> = highlighter.highlight_line(&line, &self.syntax_set).unwrap_or_default();
+                                                        let mut span_elements: Vec<AnyElement> = vec![];
+                                                        let mut current_offset = 0;
+
+                                                        for (style, text) in ranges {
+                                                            let color = style.foreground;
+                                                            let text_len = text.len();
+                                                            
+                                                            // Handle cursor insertion within this highlighted span
+                                                            if is_cursor_row && self.cursor_col >= current_offset && self.cursor_col < current_offset + text_len {
+                                                                let split_idx = self.cursor_col - current_offset;
+                                                                let (before, after) = text.split_at(split_idx);
+                                                                
+                                                                if !before.is_empty() {
+                                                                    span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(before.to_string()).into_any_element());
+                                                                }
+                                                                span_elements.push(div().text_color(rgb(0xffffff)).child("|").into_any_element());
+                                                                if !after.is_empty() {
+                                                                    span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(after.to_string()).into_any_element());
+                                                                }
                                                             } else {
-                                                                line_text.push('|');
+                                                                span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(text.to_string()).into_any_element());
                                                             }
+                                                            current_offset += text_len;
                                                         }
-                                                        div()
+
+                                                        // If cursor is at the very end of the line
+                                                        if is_cursor_row && self.cursor_col >= current_offset {
+                                                            span_elements.push(div().text_color(rgb(0xffffff)).child("|").into_any_element());
+                                                        }
+
+                                                        h_flex()
                                                             .id(i)
                                                             .flex_none()
                                                             .h(px(20.0))
-                                                            .text_color(rgb(0xcccccc))
                                                             .font_family("Courier New")
                                                             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                                                                 this.cursor_row = i;
-                                                                this.cursor_col = this.tab_contents.get(&this.open_tabs[this.active_tab_index.unwrap()]).map(|l| l[i].len()).unwrap_or(0);
+                                                                if let Some(tab_idx) = this.active_tab_index {
+                                                                    let path = &this.open_tabs[tab_idx];
+                                                                    this.cursor_col = this.tab_contents.get(path).map(|l| l[i].len()).unwrap_or(0);
+                                                                }
                                                                 cx.notify();
                                                             }))
-                                                            .child(line_text)
+                                                            .children(span_elements)
                                                     }),
                                                 ),
                                             ),
@@ -583,6 +647,28 @@ impl Render for ScrollDemo {
                             )
                     )
             )
+            // ── Footer ──────────────────────────────────────────────────
+            .child(
+                h_flex()
+                    .absolute()
+                    .bottom_0()
+                    .left_0()
+                    .right_0()
+                    .h(px(footer_h))
+                    .bg(rgb(0x007acc))
+                    .px_4()
+                    .justify_between()
+                    .items_center()
+                    .child(
+                        h_flex()
+                            .gap_4()
+                            .child(div().text_size(px(11.0)).text_color(rgb(0xffffff)).child(format!("Ln {}, Col {}", self.cursor_row + 1, self.cursor_col + 1)))
+                    )
+                    .child(
+                        div().text_size(px(11.0)).text_color(rgb(0xffffff)).child(self.current_syntax_name.clone())
+                    )
+            )
+            // ── Dropdown Overlays ─────────────────────────────────────────
             .when(self.open_menu != OpenMenu::None, |el| {
                 let items = match &self.open_menu { OpenMenu::File => file_menu_items(), _ => vec![] };
                 let mut dropdown_left = 0.0f32;
