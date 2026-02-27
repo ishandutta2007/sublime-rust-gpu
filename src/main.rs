@@ -294,22 +294,22 @@ impl AppView {
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener({
-                                        let entry_path_clone = entry_path.clone();
+                                        let _entry_path_clone = entry_path.clone();
                                         move |_this, _, _, cx| {
                                             if let Some(pos) = _this
                                                 .open_tabs
                                                 .iter()
-                                                .position(|p| p == &entry_path_clone)
+                                                .position(|p| p == &_entry_path_clone)
                                             {
                                                 _this.active_tab_index = Some(pos);
                                             } else {
                                                 if let Ok(content) =
-                                                    fs::read_to_string(&entry_path_clone)
+                                                    fs::read_to_string(&_entry_path_clone)
                                                 {
                                                     _this
                                                         .tab_contents
-                                                        .insert(entry_path_clone.clone(), content);
-                                                    _this.open_tabs.push(entry_path_clone.clone());
+                                                        .insert(_entry_path_clone.clone(), content);
+                                                    _this.open_tabs.push(_entry_path_clone.clone());
                                                     _this.active_tab_index =
                                                         Some(_this.open_tabs.len() - 1);
                                                 }
