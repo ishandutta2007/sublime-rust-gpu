@@ -23,7 +23,8 @@ impl ScrollDemo {
             right_handle: ScrollHandle::new(),
             current_dir: env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             expanded_dirs: HashSet::new(),
-            active_file_content: "Click a file in the explorer to see its content here.".to_string(),
+            active_file_content: "Click a file in the explorer to see its content here."
+                .to_string(),
         }
     }
 
@@ -156,11 +157,10 @@ impl Render for ScrollDemo {
                             .track_scroll(&self.left_handle)
                             .overflow_y_scroll()
                             .child(
-                                v_flex()
-                                    .flex_none()
-                                    .p_2()
-                                    .child(self.render_project_explorer(self.current_dir.clone(), cx))
-                            )
+                                v_flex().flex_none().p_2().child(
+                                    self.render_project_explorer(self.current_dir.clone(), cx),
+                                ),
+                            ),
                     )
                     .vertical_scrollbar(&self.left_handle),
             )
@@ -183,19 +183,20 @@ impl Render for ScrollDemo {
                             .track_scroll(&self.right_handle)
                             .overflow_y_scroll()
                             .child(
-                                v_flex()
-                                    .flex_none()
-                                    .p(px(16.0))
-                                    .children(self.active_file_content.lines().enumerate().map(|(i, line)| {
-                                        div()
-                                            .id(i)
-                                            .flex_none()
-                                            .h(px(20.0))
-                                            .text_color(rgb(0xcccccc))
-                                            .font_family("Courier New")
-                                            .child(line.to_string())
-                                    }))
-                            )
+                                v_flex().flex_none().p(px(16.0)).children(
+                                    self.active_file_content.lines().enumerate().map(
+                                        |(i, line)| {
+                                            div()
+                                                .id(i)
+                                                .flex_none()
+                                                .h(px(20.0))
+                                                .text_color(rgb(0xcccccc))
+                                                .font_family("Courier New")
+                                                .child(line.to_string())
+                                        },
+                                    ),
+                                ),
+                            ),
                     )
                     .vertical_scrollbar(&self.right_handle),
             )
