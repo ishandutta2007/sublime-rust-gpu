@@ -12,7 +12,7 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, ThemeSet};
 use syntect::parsing::SyntaxSet;
 
-actions!(sublime_rust, [Quit, Save, SaveAs, SaveAll]);
+actions!(sublime_rust, [Quit, Save, SaveAs, SaveAll, FindAction]);
 
 // ── Menu state ────────────────────────────────────────────────────────────────
 
@@ -139,7 +139,7 @@ fn selection_menu_items() -> Vec<MenuItem> {
 
 fn find_menu_items() -> Vec<MenuItem> {
     vec![
-        MenuItem::item("Find...", Some("Ctrl+F"), Save),
+        MenuItem::item("Find...", Some("Ctrl+F"), FindAction),
         MenuItem::item("Find Next", Some("F3"), Save),
         MenuItem::item("Find Previous", Some("Shift+F3"), Save),
         MenuItem::item("Replace...", Some("Ctrl+H"), Save),
@@ -208,6 +208,7 @@ struct ScrollDemo {
     left_handle: ScrollHandle,
     right_handle: ScrollHandle,
     focus_handle: FocusHandle,
+    find_focus_handle: FocusHandle,
     current_dir: PathBuf,
     expanded_dirs: HashSet<PathBuf>,
     open_tabs: Vec<PathBuf>,
@@ -230,11 +231,16 @@ struct ScrollDemo {
 
     // Confirmation dialog state
     pending_close_path: Option<PathBuf>,
+
+    // Find state
+    find_active: bool,
+    find_query: String,
+    find_matches: Vec<(usize, usize)>, // (row, col)
+    active_match_index: Option<usize>,
 }
 
 impl ScrollDemo {
     fn new(cx: &mut Context<Self>) -> Self {
-        // Load char widths from parent directory or current directory
         let char_widths = if let Ok(content) = fs::read_to_string("../charlen_arial_12px.json") {
             serde_json::from_str(&content).unwrap_or_default()
         } else if let Ok(content) = fs::read_to_string("charlen_arial_12px.json") {
@@ -247,6 +253,7 @@ impl ScrollDemo {
             left_handle: ScrollHandle::new(),
             right_handle: ScrollHandle::new(),
             focus_handle: cx.focus_handle(),
+            find_focus_handle: cx.focus_handle(),
             current_dir: env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             expanded_dirs: HashSet::new(),
             open_tabs: Vec::new(),
@@ -263,6 +270,10 @@ impl ScrollDemo {
             current_syntax_name: "Plain Text".to_string(),
             char_widths,
             pending_close_path: None,
+            find_active: false,
+            find_query: String::new(),
+            find_matches: Vec::new(),
+            active_match_index: None,
         }
     }
 
@@ -326,6 +337,60 @@ impl ScrollDemo {
             }
         }
         cx.notify();
+    }
+
+    fn perform_search(&mut self) {
+        self.find_matches.clear();
+        if self.find_query.is_empty() {
+            self.active_match_index = None;
+            return;
+        }
+
+        if let Some(idx) = self.active_tab_index {
+            let path = &self.open_tabs[idx];
+            if let Some(lines) = self.tab_contents.get(path) {
+                for (row, line) in lines.iter().enumerate() {
+                    let mut start = 0;
+                    while let Some(pos) = line[start..].find(&self.find_query) {
+                        self.find_matches.push((row, start + pos));
+                        start += pos + self.find_query.len().max(1);
+                    }
+                }
+            }
+        }
+
+        if !self.find_matches.is_empty() {
+            self.active_match_index = Some(0);
+            self.jump_to_active_match();
+        } else {
+            self.active_match_index = None;
+        }
+    }
+
+    fn jump_to_active_match(&mut self) {
+        if let Some(idx) = self.active_match_index {
+            let (row, col) = self.find_matches[idx];
+            self.cursor_row = row;
+            self.cursor_col = col;
+        }
+    }
+
+    fn find_next(&mut self, cx: &mut Context<Self>) {
+        if !self.find_matches.is_empty() {
+            let next = self.active_match_index.map(|i| (i + 1) % self.find_matches.len()).unwrap_or(0);
+            self.active_match_index = Some(next);
+            self.jump_to_active_match();
+            cx.notify();
+        }
+    }
+
+    fn find_prev(&mut self, cx: &mut Context<Self>) {
+        if !self.find_matches.is_empty() {
+            let prev = self.active_match_index.map(|i| if i == 0 { self.find_matches.len() - 1 } else { i - 1 }).unwrap_or(0);
+            self.active_match_index = Some(prev);
+            self.jump_to_active_match();
+            cx.notify();
+        }
     }
 
     fn close_tab(&mut self, path: PathBuf, cx: &mut Context<Self>) {
@@ -466,6 +531,8 @@ impl ScrollDemo {
 impl Render for ScrollDemo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let is_focused = _window.focused(cx) == Some(self.focus_handle.clone());
+        let is_find_focused = _window.focused(cx) == Some(self.find_focus_handle.clone());
+
         let active_lines = self.active_tab_index
             .and_then(|idx| self.open_tabs.get(idx))
             .and_then(|path| self.tab_contents.get(path))
@@ -495,6 +562,7 @@ impl Render for ScrollDemo {
 
         let menu_bar_h = 26.0f32;
         let footer_h = 22.0f32;
+        let find_bar_h = if self.find_active { 36.0f32 } else { 0.0f32 };
 
         div()
             .id("root")
@@ -504,6 +572,12 @@ impl Render for ScrollDemo {
             .on_action(cx.listener(|this, _action: &Save, _window, cx| this.save_active(cx)))
             .on_action(cx.listener(|this, _action: &SaveAs, _window, cx| this.save_as(cx)))
             .on_action(cx.listener(|this, _action: &SaveAll, _window, cx| this.save_all(cx)))
+            .on_action(cx.listener(|this, _action: &FindAction, window, cx| {
+                this.find_active = !this.find_active;
+                if this.find_active { window.focus(&this.find_focus_handle); }
+                else { window.focus(&this.focus_handle); }
+                cx.notify();
+            }))
             .on_action(cx.listener(|_this, _action: &Quit, _window, cx| cx.quit()))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
                 if this.is_dragging_sidebar {
@@ -551,7 +625,7 @@ impl Render for ScrollDemo {
                 div()
                     .absolute()
                     .top(px(menu_bar_h))
-                    .bottom(px(footer_h))
+                    .bottom(px(footer_h + find_bar_h))
                     .left_0()
                     .right_0()
                     .child(
@@ -731,12 +805,46 @@ impl Render for ScrollDemo {
                                                         for (style, text) in ranges {
                                                             let color = style.foreground;
                                                             let text_len = text.len();
+                                                            
+                                                            let mut search_matches_in_span = vec![];
+                                                            if !self.find_query.is_empty() {
+                                                                let mut find_start = 0;
+                                                                while let Some(pos) = text[find_start..].find(&self.find_query) {
+                                                                    let abs_pos = current_offset + find_start + pos;
+                                                                    let is_active = self.active_match_index.map(|idx| self.find_matches[idx] == (i, abs_pos)).unwrap_or(false);
+                                                                    search_matches_in_span.push((find_start + pos, find_start + pos + self.find_query.len(), is_active));
+                                                                    find_start += pos + self.find_query.len().max(1);
+                                                                }
+                                                            }
+
                                                             if is_cursor_row && self.cursor_col >= current_offset && self.cursor_col < current_offset + text_len {
                                                                 let split_idx = self.cursor_col - current_offset;
                                                                 let (before, after) = text.split_at(split_idx);
-                                                                if !before.is_empty() { span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(before.to_string()).into_any_element()); }
+                                                                if !before.is_empty() { 
+                                                                    span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(before.to_string()).into_any_element()); 
+                                                                }
                                                                 span_elements.push(div().text_color(rgb(0xffffff)).child("|").into_any_element());
-                                                                if !after.is_empty() { span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(after.to_string()).into_any_element()); }
+                                                                if !after.is_empty() { 
+                                                                    span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(after.to_string()).into_any_element()); 
+                                                                }
+                                                            } else if !search_matches_in_span.is_empty() {
+                                                                let mut last_idx = 0;
+                                                                for (start, end, is_active) in search_matches_in_span {
+                                                                    if start > last_idx {
+                                                                        span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(text[last_idx..start].to_string()).into_any_element());
+                                                                    }
+                                                                    span_elements.push(
+                                                                        div()
+                                                                            .bg(if is_active { rgb(0xd18616) } else { rgba(0xffff0044) })
+                                                                            .text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b])))
+                                                                            .child(text[start..end].to_string())
+                                                                            .into_any_element()
+                                                                    );
+                                                                    last_idx = end;
+                                                                }
+                                                                if last_idx < text_len {
+                                                                    span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(text[last_idx..].to_string()).into_any_element());
+                                                                }
                                                             } else {
                                                                 span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(text.to_string()).into_any_element());
                                                             }
@@ -796,6 +904,45 @@ impl Render for ScrollDemo {
                         div().text_size(px(11.0)).text_color(rgb(0xffffff)).child(self.current_syntax_name.clone())
                     )
             )
+            .when(self.find_active, |el| {
+                el.child(
+                    h_flex()
+                        .absolute().bottom(px(footer_h)).left_0().right_0().h(px(find_bar_h))
+                        .bg(rgb(0x2d2d2d)).border_t_1().border_color(rgb(0x454545)).px_4().gap_4().items_center()
+                        .child(div().text_size(px(12.0)).text_color(rgb(0xcccccc)).child("Find:"))
+                        .child(
+                            div()
+                                .flex_1().bg(rgb(0x3c3c3c)).border_1().border_color(if is_find_focused { rgb(0x007acc) } else { rgb(0x454545) }).px_2().py_1()
+                                .track_focus(&self.find_focus_handle)
+                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, _| { window.focus(&this.find_focus_handle); }))
+                                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                                    match event.keystroke.key.as_str() {
+                                        "backspace" => { this.find_query.pop(); this.perform_search(); }
+                                        "enter" => { this.find_next(cx); }
+                                        "escape" => { this.find_active = false; window.focus(&this.focus_handle); }
+                                        key if key.len() == 1 => { this.find_query.push_str(key); this.perform_search(); }
+                                        _ => {}
+                                    }
+                                    cx.notify();
+                                }))
+                                .child(div().text_size(px(12.0)).text_color(rgb(0xffffff)).child(if self.find_query.is_empty() { " ".to_string() } else { self.find_query.clone() }))
+                        )
+                        .child(
+                            h_flex().gap_2()
+                                .child(
+                                    div().px_3().py_1().bg(rgb(0x3e3e3e)).hover(|s| s.bg(rgb(0x4e4e4e))).cursor_pointer()
+                                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.find_prev(cx)))
+                                        .child(div().text_size(px(11.0)).text_color(rgb(0xcccccc)).child("Find Prev"))
+                                )
+                                .child(
+                                    div().px_3().py_1().bg(rgb(0x3e3e3e)).hover(|s| s.bg(rgb(0x4e4e4e))).cursor_pointer()
+                                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.find_next(cx)))
+                                        .child(div().text_size(px(11.0)).text_color(rgb(0xcccccc)).child("Find Next"))
+                                )
+                        )
+                        .child(div().text_size(px(11.0)).text_color(rgb(0x888888)).child(format!("{} of {}", self.active_match_index.map(|i| i + 1).unwrap_or(0), self.find_matches.len())))
+                )
+            })
             .when(self.open_menu != OpenMenu::None, |el| {
                 let items = match &self.open_menu { 
                     OpenMenu::File => file_menu_items(), 
@@ -811,7 +958,6 @@ impl Render for ScrollDemo {
                     _ => vec![] 
                 };
                 
-                // Helper to calculate label width precisely
                 let get_label_width = |label: &str, char_widths: &HashMap<char, f32>| {
                     label.chars()
                         .map(|c| char_widths.get(&c).unwrap_or(&7.0))
@@ -831,11 +977,15 @@ impl Render for ScrollDemo {
                           let action = item.action.boxed_clone();
                           let label = item.label;
                           h_flex().id(label).justify_between().items_center().px(px(12.0)).py(px(3.0)).text_size(px(12.0)).text_color(rgb(0xcccccc)).hover(|s| s.bg(rgb(0x094771)).text_color(rgb(0xffffff))).cursor_pointer()
-                                  .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| { 
+                                  .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| { 
                                       let action_ref = action.as_ref();
                                       if label == "Save" { this.save_active(cx); }
                                       else if label == "Save All" { this.save_all(cx); }
                                       else if label == "Save As..." { this.save_as(cx); }
+                                      else if label == "Find..." { 
+                                          this.find_active = true; 
+                                          window.focus(&this.find_focus_handle);
+                                      }
                                       else if label == "Quit" || label == "Exit" { cx.quit(); }
                                       else { cx.dispatch_action(action_ref); }
                                       this.open_menu = OpenMenu::None;
@@ -848,12 +998,11 @@ impl Render for ScrollDemo {
                       }
                   })))
             })
-            // ── Confirmation Dialog Overlay ──────────────────────────────
             .when_some(self.pending_close_path.clone(), |el, path| {
                 el.child(
                     div()
                         .absolute().top_0().left_0().size_full()
-                        .bg(rgba(0x000000aa)) // Dim background
+                        .bg(rgba(0x000000aa)) 
                         .flex().items_center().justify_center()
                         .child(
                             v_flex()
@@ -917,6 +1066,8 @@ fn main() {
             KeyBinding::new("ctrl-shift-s", SaveAs, None),
             KeyBinding::new("cmd-alt-s", SaveAll, None),
             KeyBinding::new("ctrl-alt-s", SaveAll, None),
+            KeyBinding::new("cmd-f", FindAction, None),
+            KeyBinding::new("ctrl-f", FindAction, None),
             KeyBinding::new("cmd-q", Quit, None),
             KeyBinding::new("ctrl-q", Quit, None),
         ]);
