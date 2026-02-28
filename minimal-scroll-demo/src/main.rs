@@ -111,6 +111,99 @@ fn file_menu_items() -> Vec<MenuItem> {
     ]
 }
 
+fn edit_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Undo", Some("Ctrl+Z"), Save),
+        MenuItem::item("Redo", Some("Ctrl+Y"), Save),
+        MenuItem::sep(),
+        MenuItem::item("Copy", Some("Ctrl+C"), Save),
+        MenuItem::item("Cut", Some("Ctrl+X"), Save),
+        MenuItem::item("Paste", Some("Ctrl+V"), Save),
+        MenuItem::sep(),
+        MenuItem::submenu("Line"),
+        MenuItem::submenu("Comment"),
+        MenuItem::submenu("Text"),
+        MenuItem::submenu("Tag"),
+    ]
+}
+
+fn selection_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Select All", Some("Ctrl+A"), Save),
+        MenuItem::item("Expand Selection", Some("Ctrl+L"), Save),
+        MenuItem::sep(),
+        MenuItem::item("Add Next Line", Some("Ctrl+Alt+Down"), Save),
+        MenuItem::item("Add Previous Line", Some("Ctrl+Alt+Up"), Save),
+    ]
+}
+
+fn find_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Find...", Some("Ctrl+F"), Save),
+        MenuItem::item("Find Next", Some("F3"), Save),
+        MenuItem::item("Find Previous", Some("Shift+F3"), Save),
+        MenuItem::item("Replace...", Some("Ctrl+H"), Save),
+        MenuItem::sep(),
+        MenuItem::item("Find in Files...", Some("Ctrl+Shift+F"), Save),
+    ]
+}
+
+fn view_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::submenu("Side Bar"),
+        MenuItem::submenu("Show Console"),
+        MenuItem::sep(),
+        MenuItem::submenu("Layout"),
+        MenuItem::submenu("Groups"),
+    ]
+}
+
+fn goto_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Goto Anything...", Some("Ctrl+P"), Save),
+        MenuItem::sep(),
+        MenuItem::item("Goto Symbol...", Some("Ctrl+R"), Save),
+        MenuItem::item("Goto Line...", Some("Ctrl+G"), Save),
+    ]
+}
+
+fn tools_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Command Palette...", Some("Ctrl+Shift+P"), Save),
+        MenuItem::sep(),
+        MenuItem::submenu("Build System"),
+        MenuItem::item("Build", Some("Ctrl+B"), Save),
+    ]
+}
+
+fn project_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Open Project...", None, Save),
+        MenuItem::submenu("Recent Projects"),
+        MenuItem::sep(),
+        MenuItem::item("Save Project As...", None, Save),
+    ]
+}
+
+fn preferences_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Settings", None, Save),
+        MenuItem::item("Key Bindings", None, Save),
+        MenuItem::sep(),
+        MenuItem::submenu("Color Scheme"),
+        MenuItem::submenu("Theme"),
+    ]
+}
+
+fn help_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::item("Documentation", None, Save),
+        MenuItem::item("Twitter", None, Save),
+        MenuItem::sep(),
+        MenuItem::item("About Sublime Text", None, Save),
+    ]
+}
+
 struct ScrollDemo {
     left_handle: ScrollHandle,
     right_handle: ScrollHandle,
@@ -680,7 +773,19 @@ impl Render for ScrollDemo {
                     )
             )
             .when(self.open_menu != OpenMenu::None, |el| {
-                let items = match &self.open_menu { OpenMenu::File => file_menu_items(), _ => vec![] };
+                let items = match &self.open_menu { 
+                    OpenMenu::File => file_menu_items(), 
+                    OpenMenu::Edit => edit_menu_items(),
+                    OpenMenu::Selection => selection_menu_items(),
+                    OpenMenu::Find => find_menu_items(),
+                    OpenMenu::View => view_menu_items(),
+                    OpenMenu::Goto => goto_menu_items(),
+                    OpenMenu::Tools => tools_menu_items(),
+                    OpenMenu::Project => project_menu_items(),
+                    OpenMenu::Preferences => preferences_menu_items(),
+                    OpenMenu::Help => help_menu_items(),
+                    _ => vec![] 
+                };
                 
                 // Helper to calculate label width precisely
                 let get_label_width = |label: &str, char_widths: &HashMap<char, f32>| {
