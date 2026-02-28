@@ -227,6 +227,9 @@ struct ScrollDemo {
 
     // Char widths
     char_widths: HashMap<char, f32>,
+
+    // Confirmation dialog state
+    pending_close_path: Option<PathBuf>,
 }
 
 impl ScrollDemo {
@@ -259,6 +262,7 @@ impl ScrollDemo {
             theme_set: ThemeSet::load_defaults(),
             current_syntax_name: "Plain Text".to_string(),
             char_widths,
+            pending_close_path: None,
         }
     }
 
@@ -274,17 +278,21 @@ impl ScrollDemo {
         self.current_syntax_name = "Plain Text".to_string();
     }
 
+    fn save_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if let Some(lines) = self.tab_contents.get(&path) {
+            let content = lines.join("\n");
+            if fs::write(&path, content).is_ok() {
+                self.dirty_tabs.remove(&path);
+                eprintln!("Saved: {:?}", path);
+                cx.notify();
+            }
+        }
+    }
+
     fn save_active(&mut self, cx: &mut Context<Self>) {
         if let Some(idx) = self.active_tab_index {
             if let Some(path) = self.open_tabs.get(idx).cloned() {
-                if let Some(lines) = self.tab_contents.get(&path) {
-                    let content = lines.join("\n");
-                    if fs::write(&path, content).is_ok() {
-                        self.dirty_tabs.remove(&path);
-                        eprintln!("Saved: {:?}", path);
-                        cx.notify();
-                    }
-                }
+                self.save_path(path, cx);
             }
         }
     }
@@ -316,6 +324,30 @@ impl ScrollDemo {
                     eprintln!("Saved (All): {:?}", path);
                 }
             }
+        }
+        cx.notify();
+    }
+
+    fn close_tab(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if let Some(idx) = self.open_tabs.iter().position(|p| p == &path) {
+            self.open_tabs.remove(idx);
+            self.tab_contents.remove(&path);
+            self.dirty_tabs.remove(&path);
+            if let Some(active_idx) = self.active_tab_index {
+                if active_idx >= self.open_tabs.len() {
+                    self.active_tab_index = if self.open_tabs.is_empty() { None } else { Some(self.open_tabs.len() - 1) };
+                }
+            }
+            self.update_syntax();
+            cx.notify();
+        }
+    }
+
+    fn request_close_tab(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if self.dirty_tabs.contains(&path) {
+            self.pending_close_path = Some(path);
+        } else {
+            self.close_tab(path, cx);
         }
         cx.notify();
     }
@@ -593,15 +625,7 @@ impl Render for ScrollDemo {
                                             .child(
                                                 div().ml(px(8.0)).text_size(px(10.0)).text_color(rgb(0x666666)).hover(|s| s.text_color(rgb(0xcccccc)))
                                                     .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                                                        this.open_tabs.remove(idx);
-                                                        this.tab_contents.remove(&path_clone);
-                                                        this.dirty_tabs.remove(&path_clone);
-                                                        if let Some(active_idx) = this.active_tab_index {
-                                                            if active_idx >= this.open_tabs.len() {
-                                                                this.active_tab_index = if this.open_tabs.is_empty() { None } else { Some(this.open_tabs.len() - 1) };
-                                                            }
-                                                        }
-                                                        this.update_syntax();
+                                                        this.request_close_tab(path_clone.clone(), cx);
                                                         cx.stop_propagation();
                                                         cx.notify();
                                                     }))
@@ -823,6 +847,61 @@ impl Render for ScrollDemo {
                                   .into_any_element()
                       }
                   })))
+            })
+            // ── Confirmation Dialog Overlay ──────────────────────────────
+            .when_some(self.pending_close_path.clone(), |el, path| {
+                el.child(
+                    div()
+                        .absolute().top_0().left_0().size_full()
+                        .bg(rgba(0x000000aa)) // Dim background
+                        .flex().items_center().justify_center()
+                        .child(
+                            v_flex()
+                                .w(px(400.0))
+                                .bg(rgb(0x2d2d2d))
+                                .border_1().border_color(rgb(0x454545))
+                                .shadow_xl()
+                                .p_6()
+                                .child(div().text_size(px(16.0)).text_color(rgb(0xffffff)).child("Unsaved Changes"))
+                                .child(div().mt_4().text_size(px(13.0)).text_color(rgb(0xcccccc)).child(format!("Do you want to save the changes you made to {}?", path.file_name().and_then(|n| n.to_str()).unwrap_or("this file"))))
+                                .child(
+                                    h_flex().mt_8().justify_end().gap_3()
+                                        .child(
+                                            div().px_4().py_2().bg(rgb(0x007acc)).hover(|s| s.bg(rgb(0x0062a3))).cursor_pointer()
+                                                .on_mouse_down(MouseButton::Left, cx.listener({
+                                                    let path = path.clone();
+                                                    move |this, _, _, cx| {
+                                                        this.save_path(path.clone(), cx);
+                                                        this.close_tab(path.clone(), cx);
+                                                        this.pending_close_path = None;
+                                                        cx.notify();
+                                                    }
+                                                }))
+                                                .child(div().text_size(px(12.0)).text_color(rgb(0xffffff)).child("Save"))
+                                        )
+                                        .child(
+                                            div().px_4().py_2().bg(rgb(0x3e3e3e)).hover(|s| s.bg(rgb(0x4e4e4e))).cursor_pointer()
+                                                .on_mouse_down(MouseButton::Left, cx.listener({
+                                                    let path = path.clone();
+                                                    move |this, _, _, cx| {
+                                                        this.close_tab(path.clone(), cx);
+                                                        this.pending_close_path = None;
+                                                        cx.notify();
+                                                    }
+                                                }))
+                                                .child(div().text_size(px(12.0)).text_color(rgb(0xffffff)).child("Don't Save"))
+                                        )
+                                        .child(
+                                            div().px_4().py_2().bg(rgb(0x3e3e3e)).hover(|s| s.bg(rgb(0x4e4e4e))).cursor_pointer()
+                                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                                    this.pending_close_path = None;
+                                                    cx.notify();
+                                                }))
+                                                .child(div().text_size(px(12.0)).text_color(rgb(0xffffff)).child("Cancel"))
+                                        )
+                                )
+                        )
+                )
             })
     }
 }
