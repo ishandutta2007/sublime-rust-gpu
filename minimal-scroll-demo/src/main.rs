@@ -372,6 +372,14 @@ impl ScrollDemo {
             let (row, col) = self.find_matches[idx];
             self.cursor_row = row;
             self.cursor_col = col;
+
+            // Autoscroll: Calculate target Y offset. 
+            // Each line is 20px, top padding is 16px.
+            // We scroll so the match is roughly in the upper third of the view.
+            let line_height = 20.0;
+            let top_padding = 16.0;
+            let target_y = (row as f32 * line_height) + top_padding - 100.0;
+            self.right_handle.set_offset(Point::new(px(0.0), px(-target_y.max(0.0))));
         }
     }
 
