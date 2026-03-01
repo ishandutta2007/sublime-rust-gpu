@@ -1,0 +1,748 @@
+use gpui::prelude::FluentBuilder;
+use gpui::*;
+use gpui_component::scroll::ScrollableElement;
+use gpui_component::{h_flex, v_flex};
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+
+use syntect::easy::HighlightLines;
+
+use crate::app_state::ScrollDemo;
+use crate::actions::*;
+use crate::menu::*;
+
+impl ScrollDemo {
+    pub fn render_project_explorer(&self, path: PathBuf, cx: &mut Context<Self>) -> impl IntoElement {
+        let is_expanded = self.expanded_dirs.contains(&path);
+        let dir_name = path
+            .file_name()
+            .map_or("?", |os_str| os_str.to_str().unwrap_or("?"))
+            .to_string();
+
+        let dir_label = div()
+            .flex()
+            .items_center()
+            .child(
+                div()
+                    .w(px(12.0))
+                    .flex()
+                    .justify_center()
+                    .child(if is_expanded { "▾" } else { "▸" }),
+            )
+            .child(div().pl(px(4.0)).child(dir_name))
+            .text_color(rgb(0xdddddd))
+            .hover(|s| s.bg(rgb(0x2d2d2d)))
+            .cursor_pointer()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener({
+                    let path_clone = path.clone();
+                    move |this, _, _, cx| {
+                        if this.expanded_dirs.contains(&path_clone) {
+                            this.expanded_dirs.remove(&path_clone);
+                        } else {
+                            this.expanded_dirs.insert(path_clone.clone());
+                        }
+                        cx.notify();
+                    }
+                }),
+            );
+
+        let mut children_elements: Vec<AnyElement> = vec![];
+        if is_expanded {
+            if let Ok(entries) = std::fs::read_dir(&path) {
+                let mut sorted_entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
+                sorted_entries.sort_by(|a, b| {
+                    let a_is_dir = a.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+                    let b_is_dir = b.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+                    match (a_is_dir, b_is_dir) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.file_name().cmp(&b.file_name()),
+                    }
+                });
+
+                for entry in sorted_entries {
+                    let entry_path = entry.path();
+                    let file_name = entry.file_name().to_str().unwrap_or("?").to_string();
+
+                    if entry_path.is_dir() {
+                        children_elements.push(
+                            self.render_project_explorer(entry_path.clone(), cx)
+                                .into_any_element(),
+                        );
+                    } else {
+                        children_elements.push(
+                            div()
+                                .pl(px(16.0))
+                                .child(file_name)
+                                .text_color(rgb(0xaaaaaa))
+                                .hover(|s| s.bg(rgb(0x2d2d2d)))
+                                .cursor_pointer()
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener({
+                                        let entry_path_clone = entry_path.clone();
+                                        move |this, _, window, cx| {
+                                            if let Some(pos) = this.open_tabs.iter().position(|p| p == &entry_path_clone) {
+                                                this.active_tab_index = Some(pos);
+                                            } else {
+                                                if let Ok(content) = fs::read_to_string(&entry_path_clone) {
+                                                    let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                                                    this.tab_contents.insert(entry_path_clone.clone(), lines);
+                                                    this.open_tabs.push(entry_path_clone.clone());
+                                                    this.active_tab_index = Some(this.open_tabs.len() - 1);
+                                                }
+                                            }
+                                            this.update_syntax();
+                                            this.cursor_row = 0;
+                                            this.cursor_col = 0;
+                                            this.right_handle.set_offset(Point::default());
+                                            window.focus(&this.focus_handle);
+                                            cx.stop_propagation();
+                                            cx.notify();
+                                        }
+                                    }),
+                                )
+                                .into_any_element(),
+                        );
+                    }
+                }
+            }
+        }
+
+        v_flex()
+            .child(dir_label)
+            .when(!children_elements.is_empty(), |el| {
+                el.child(
+                    v_flex()
+                        .pl(px(12.0))
+                        .children(children_elements),
+                )
+            })
+    }
+}
+
+impl Render for ScrollDemo {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let is_focused = _window.focused(cx) == Some(self.focus_handle.clone());
+        let is_find_focused = _window.focused(cx) == Some(self.find_focus_handle.clone());
+        let is_fif_find_focused = _window.focused(cx) == Some(self.fif_focus_find.clone());
+        let is_fif_where_focused = _window.focused(cx) == Some(self.fif_focus_where.clone());
+        let is_fif_replace_focused = _window.focused(cx) == Some(self.fif_focus_replace.clone());
+
+        let active_lines = self.active_tab_index
+            .and_then(|idx| self.open_tabs.get(idx))
+            .and_then(|path| self.tab_contents.get(path))
+            .cloned()
+            .unwrap_or_else(|| vec!["Click a file in the explorer to see its content here.".to_string()]);
+
+        let syntax = self.active_tab_index
+            .and_then(|idx| self.open_tabs.get(idx))
+            .and_then(|path| self.syntax_set.find_syntax_for_file(path).ok().flatten())
+            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
+
+        let theme = &self.theme_set.themes["base16-ocean.dark"];
+        let mut highlighter = HighlightLines::new(syntax, theme);
+
+        let menu_bar_labels: &[(&str, OpenMenu)] = &[
+            ("File", OpenMenu::File),
+            ("Edit", OpenMenu::Edit),
+            ("Selection", OpenMenu::Selection),
+            ("Find", OpenMenu::Find),
+            ("View", OpenMenu::View),
+            ("Goto", OpenMenu::Goto),
+            ("Tools", OpenMenu::Tools),
+            ("Project", OpenMenu::Project),
+            ("Preferences", OpenMenu::Preferences),
+            ("Help", OpenMenu::Help),
+        ];
+
+        let menu_bar_h = 26.0f32;
+        let footer_h = 22.0f32;
+        let find_bar_h = if self.find_active { 36.0f32 } else { 0.0f32 };
+        let fif_bar_h = if self.fif_active { 108.0f32 } else { 0.0f32 };
+
+        div()
+            .id("root")
+            .relative()
+            .size_full()
+            .bg(rgb(0x181818))
+            .on_action(cx.listener(|this, _action: &Save, _window, cx| this.save_active(cx)))
+            .on_action(cx.listener(|this, _action: &SaveAs, _window, cx| this.save_as(cx)))
+            .on_action(cx.listener(|this, _action: &SaveAll, _window, cx| this.save_all(cx)))
+            .on_action(cx.listener(|this, _action: &FindAction, window, cx| {
+                this.find_active = !this.find_active;
+                this.fif_active = false;
+                if this.find_active { window.focus(&this.find_focus_handle); }
+                else { window.focus(&this.focus_handle); }
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _action: &FindInFilesAction, window, cx| {
+                this.fif_active = !this.fif_active;
+                this.find_active = false;
+                if this.fif_active { window.focus(&this.fif_focus_find); }
+                else { window.focus(&this.focus_handle); }
+                cx.notify();
+            }))
+            .on_action(cx.listener(|_this, _action: &Quit, _window, cx| cx.quit()))
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                if this.is_dragging_sidebar {
+                    this.sidebar_width = event.position.x.into();
+                    this.sidebar_width = this.sidebar_width.clamp(50.0, 600.0);
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _window, cx| {
+                    if this.is_dragging_sidebar {
+                        this.is_dragging_sidebar = false;
+                        cx.notify();
+                    }
+                }),
+            )
+            .child(
+                div().flex().flex_row().bg(rgb(0x1e1e1e)).w_full().h(px(menu_bar_h)).children(
+                    menu_bar_labels.iter().map(|(label, variant)| {
+                        let is_open = variant == &self.open_menu;
+                        let variant = variant.clone();
+                        div()
+                            .px_3()
+                            .py_1()
+                            .text_size(px(12.0))
+                            .text_color(if is_open { rgb(0xffffff) } else { rgb(0xcccccc) })
+                            .bg(if is_open { rgb(0x3e3e3e) } else { rgb(0x1e1e1e) })
+                            .hover(|s| s.bg(rgb(0x3e3e3e)).text_color(rgb(0xcccccc)))
+                            .cursor_pointer()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| {
+                                    this.open_menu = if this.open_menu == variant { OpenMenu::None } else { variant.clone() };
+                                    cx.notify();
+                                }),
+                            )
+                            .child(*label)
+                    })
+                )
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(menu_bar_h))
+                    .bottom(px(footer_h + find_bar_h + fif_bar_h))
+                    .left_0()
+                    .right_0()
+                    .child(
+                        div()
+                            .id("left-pane-wrapper")
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .bottom_0()
+                            .w(px(self.sidebar_width))
+                            .child(
+                                v_flex()
+                                    .id("left-scroll-area")
+                                    .size_full()
+                                    .track_scroll(&self.left_handle)
+                                    .overflow_y_scroll()
+                                    .child(
+                                        v_flex().flex_none().p_2().child(
+                                            self.render_project_explorer(self.current_dir.clone(), cx),
+                                        ),
+                                    ),
+                            )
+                            .vertical_scrollbar(&self.left_handle),
+                    )
+                    .child(
+                        div()
+                            .id("separator")
+                            .absolute()
+                            .top_0()
+                            .left(px(self.sidebar_width))
+                            .w(px(5.0))
+                            .bottom_0()
+                            .bg(rgb(0x333333))
+                            .cursor_col_resize()
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _window, cx| {
+                                this.is_dragging_sidebar = true;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("right-pane-wrapper")
+                            .absolute()
+                            .top_0()
+                            .left(px(self.sidebar_width + 5.0))
+                            .right_0()
+                            .bottom_0()
+                            .child(
+                                div().flex().flex_row().bg(rgb(0x1e1e1e)).h(px(30.0)).overflow_x_hidden().children(
+                                    self.open_tabs.iter().enumerate().map(|(idx, path)| {
+                                        let is_active = Some(idx) == self.active_tab_index;
+                                        let mut file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string();
+                                        if self.dirty_tabs.contains(path) { file_name.push('*'); }
+                                        let path_clone = path.clone();
+                                        div()
+                                            .flex().items_center().px(px(10.0)).h_full()
+                                            .bg(if is_active { rgb(0x232323) } else { rgb(0x181818) })
+                                            .border_r_1().border_color(rgb(0x333333))
+                                            .cursor_pointer()
+                                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                                                this.active_tab_index = Some(idx);
+                                                this.update_syntax();
+                                                this.right_handle.set_offset(Point::default());
+                                                window.focus(&this.focus_handle);
+                                                cx.notify();
+                                            }))
+                                            .child(div().text_size(px(12.0)).text_color(if is_active { rgb(0xcccccc) } else { rgb(0x888888) }).child(file_name))
+                                            .child(
+                                                div().ml(px(8.0)).text_size(px(10.0)).text_color(rgb(0x666666)).hover(|s| s.text_color(rgb(0xcccccc)))
+                                                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                                        this.request_close_tab(path_clone.clone(), cx);
+                                                        cx.stop_propagation();
+                                                        cx.notify();
+                                                    }))
+                                                    .child("✕")
+                                            )
+                                    })
+                                )
+                            )
+                            .child(
+                                div()
+                                    .id("editor-area-wrapper")
+                                    .absolute()
+                                    .top(px(30.0))
+                                    .bottom_0()
+                                    .left_0()
+                                    .right_0()
+                                    .border_1()
+                                    .border_color(if is_focused { rgb(0x094771) } else { rgb(0x333333) })
+                                    .track_focus(&self.focus_handle)
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
+                                        window.focus(&this.focus_handle);
+                                        cx.notify();
+                                    }))
+                                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                                        if event.keystroke.modifiers.platform || event.keystroke.modifiers.control { return; }
+                                        if let Some(idx) = this.active_tab_index {
+                                            let path = this.open_tabs[idx].clone();
+                                            if let Some(lines) = this.tab_contents.get_mut(&path) {
+                                                match event.keystroke.key.as_str() {
+                                                    "backspace" => {
+                                                        if this.cursor_col > 0 {
+                                                            lines[this.cursor_row].remove(this.cursor_col - 1);
+                                                            this.cursor_col -= 1;
+                                                            this.dirty_tabs.insert(path);
+                                                        } else if this.cursor_row > 0 {
+                                                            let current_line = lines.remove(this.cursor_row);
+                                                            this.cursor_row -= 1;
+                                                            this.cursor_col = lines[this.cursor_row].len();
+                                                            lines[this.cursor_row].push_str(&current_line);
+                                                            this.dirty_tabs.insert(path);
+                                                        }
+                                                    }
+                                                    "enter" => {
+                                                        let current_line = &mut lines[this.cursor_row];
+                                                        let new_line = current_line.split_off(this.cursor_col);
+                                                        lines.insert(this.cursor_row + 1, new_line);
+                                                        this.cursor_row += 1;
+                                                        this.cursor_col = 0;
+                                                        this.dirty_tabs.insert(path);
+                                                    }
+                                                    "left" => {
+                                                        if this.cursor_col > 0 { this.cursor_col -= 1; }
+                                                        else if this.cursor_row > 0 {
+                                                            this.cursor_row -= 1;
+                                                            this.cursor_col = lines[this.cursor_row].len();
+                                                        }
+                                                    }
+                                                    "right" => {
+                                                        if this.cursor_col < lines[this.cursor_row].len() { this.cursor_col += 1; }
+                                                        else if this.cursor_row < lines.len() - 1 {
+                                                            this.cursor_row += 1;
+                                                            this.cursor_col = 0;
+                                                        }
+                                                    }
+                                                    "up" => {
+                                                        if this.cursor_row > 0 {
+                                                            this.cursor_row -= 1;
+                                                            this.cursor_col = this.cursor_col.min(lines[this.cursor_row].len());
+                                                        }
+                                                    }
+                                                    "down" => {
+                                                        if this.cursor_row < lines.len() - 1 {
+                                                            this.cursor_row += 1;
+                                                            this.cursor_col = this.cursor_col.min(lines[this.cursor_row].len());
+                                                        }
+                                                    }
+                                                    "space" => { lines[this.cursor_row].insert(this.cursor_col, ' '); this.cursor_col += 1; this.dirty_tabs.insert(path); }
+                                                    "tab" => { lines[this.cursor_row].insert_str(this.cursor_col, "    "); this.cursor_col += 4; this.dirty_tabs.insert(path); }
+                                                    key if key.len() == 1 => {
+                                                        lines[this.cursor_row].insert_str(this.cursor_col, key);
+                                                        this.cursor_col += 1;
+                                                        this.dirty_tabs.insert(path);
+                                                    }
+                                                    _ => {}
+                                                }
+                                                cx.notify();
+                                            }
+                                        }
+                                    }))
+                                    .child(
+                                        v_flex()
+                                            .id("right-scroll-area")
+                                            .size_full()
+                                            .track_scroll(&self.right_handle)
+                                            .overflow_y_scroll()
+                                            .child(
+                                                v_flex().flex_none().p(px(16.0)).children(
+                                                    active_lines.into_iter().enumerate().map(|(i, line)| {
+                                                        let is_cursor_row = is_focused && Some(i) == Some(self.cursor_row);
+                                                        let ranges: Vec<(syntect::highlighting::Style, &str)> = highlighter.highlight_line(&line, &self.syntax_set).unwrap_or_default();
+                                                        let mut span_elements: Vec<AnyElement> = vec![];
+                                                        let mut current_offset = 0;
+
+                                                        for (style, text) in ranges {
+                                                            let color = style.foreground;
+                                                            let text_len = text.len();
+                                                            
+                                                            let mut search_matches_in_span = vec![];
+                                                            if !self.find_query.is_empty() {
+                                                                let mut find_start = 0;
+                                                                while let Some(pos) = text[find_start..].find(&self.find_query) {
+                                                                    let abs_pos = current_offset + find_start + pos;
+                                                                    let is_active = self.active_match_index.map(|idx| self.find_matches[idx] == (i, abs_pos)).unwrap_or(false);
+                                                                    search_matches_in_span.push((find_start + pos, find_start + pos + self.find_query.len(), is_active));
+                                                                    find_start += pos + self.find_query.len().max(1);
+                                                                }
+                                                            }
+
+                                                            if is_cursor_row && self.cursor_col >= current_offset && self.cursor_col < current_offset + text_len {
+                                                                let split_idx = self.cursor_col - current_offset;
+                                                                let (before, after) = text.split_at(split_idx);
+                                                                if !before.is_empty() { 
+                                                                    span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(before.to_string()).into_any_element()); 
+                                                                }
+                                                                span_elements.push(div().text_color(rgb(0xffffff)).child("|").into_any_element());
+                                                                if !after.is_empty() { 
+                                                                    span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(after.to_string()).into_any_element()); 
+                                                                }
+                                                            } else if !search_matches_in_span.is_empty() {
+                                                                let mut last_idx = 0;
+                                                                for (start, end, is_active) in search_matches_in_span {
+                                                                    if start > last_idx {
+                                                                        span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(text[last_idx..start].to_string()).into_any_element());
+                                                                    }
+                                                                    span_elements.push(
+                                                                        div()
+                                                                            .bg(if is_active { rgb(0xd18616) } else { rgba(0xffff0044) })
+                                                                            .text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b])))
+                                                                            .child(text[start..end].to_string())
+                                                                            .into_any_element()
+                                                                    );
+                                                                    last_idx = end;
+                                                                }
+                                                                if last_idx < text_len {
+                                                                    span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(text[last_idx..].to_string()).into_any_element());
+                                                                }
+                                                            } else {
+                                                                span_elements.push(div().text_color(rgb(u32::from_be_bytes([0, color.r, color.g, color.b]))).child(text.to_string()).into_any_element());
+                                                            }
+                                                            current_offset += text_len;
+                                                        }
+                                                        if is_cursor_row && self.cursor_col >= current_offset { span_elements.push(div().text_color(rgb(0xffffff)).child("|").into_any_element()); }
+
+                                                        h_flex()
+                                                            .id(i)
+                                                            .flex_none()
+                                                            .h(px(20.0))
+                                                            .font_family("Courier New")
+                                                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                                                this.cursor_row = i;
+                                                                if let Some(tab_idx) = this.active_tab_index {
+                                                                    let path = &this.open_tabs[tab_idx];
+                                                                    this.cursor_col = this.tab_contents.get(path).map(|l| l[i].len()).unwrap_or(0);
+                                                                }
+                                                                cx.notify();
+                                                            }))
+                                                            .child(
+                                                                div()
+                                                                    .w(px(40.0))
+                                                                    .text_color(rgb(0x666666))
+                                                                    .text_size(px(12.0))
+                                                                    .flex()
+                                                                    .justify_end()
+                                                                    .pr(px(8.0))
+                                                                    .child(format!("{}", i + 1))
+                                                            )
+                                                            .children(span_elements)
+                                                    }),
+                                                ),
+                                            ),
+                                    )
+                                    .vertical_scrollbar(&self.right_handle)
+                            )
+                    )
+            )
+            .child(
+                h_flex()
+                    .absolute()
+                    .bottom_0()
+                    .left_0()
+                    .right_0()
+                    .h(px(footer_h))
+                    .bg(rgb(0x007acc))
+                    .px_4()
+                    .justify_between()
+                    .items_center()
+                    .child(
+                        h_flex()
+                            .gap_4()
+                            .child(div().text_size(px(11.0)).text_color(rgb(0xffffff)).child(format!("Ln {}, Col {}", self.cursor_row + 1, self.cursor_col + 1)))
+                    )
+                    .child(
+                        div().text_size(px(11.0)).text_color(rgb(0xffffff)).child(self.current_syntax_name.clone())
+                    )
+            )
+            .when(self.find_active, |el| {
+                el.child(
+                    h_flex()
+                        .absolute().bottom(px(footer_h)).left_0().right_0().h(px(find_bar_h))
+                        .bg(rgb(0x2d2d2d)).border_t_1().border_color(rgb(0x454545)).px_4().gap_4().items_center()
+                        .child(div().text_size(px(12.0)).text_color(rgb(0xcccccc)).child("Find:"))
+                        .child(
+                            div()
+                                .flex_1().bg(rgb(0x3c3c3c)).border_1().border_color(if is_find_focused { rgb(0x007acc) } else { rgb(0x454545) }).px_2().py_1()
+                                .track_focus(&self.find_focus_handle)
+                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, _| { window.focus(&this.find_focus_handle); }))
+                                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                                    match event.keystroke.key.as_str() {
+                                        "backspace" => { this.find_query.pop(); this.perform_search(); }
+                                        "enter" => { this.find_next(cx); }
+                                        "escape" => { this.find_active = false; window.focus(&this.focus_handle); }
+                                        key if key.len() == 1 => { this.find_query.push_str(key); this.perform_search(); }
+                                        _ => {}
+                                    }
+                                    cx.notify();
+                                }))
+                                .child(div().text_size(px(12.0)).text_color(rgb(0xffffff)).child(if self.find_query.is_empty() { " ".to_string() } else { self.find_query.clone() }))
+                        )
+                        .child(
+                            h_flex().gap_2()
+                                .child(
+                                    div().px_3().py_1().bg(rgb(0x3e3e3e)).hover(|s| s.bg(rgb(0x4e4e4e))).cursor_pointer()
+                                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.find_prev(cx)))
+                                        .child(div().text_size(px(11.0)).text_color(rgb(0xcccccc)).child("Find Prev"))
+                                )
+                                .child(
+                                    div().px_3().py_1().bg(rgb(0x3e3e3e)).hover(|s| s.bg(rgb(0x4e4e4e))).cursor_pointer()
+                                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.find_next(cx)))
+                                        .child(div().text_size(px(11.0)).text_color(rgb(0xcccccc)).child("Find Next"))
+                                )
+                        )
+                        .child(div().text_size(px(11.0)).text_color(rgb(0x888888)).child(format!("{} of {}", self.active_match_index.map(|i| i + 1).unwrap_or(0), self.find_matches.len())))
+                )
+            })
+            .when(self.fif_active, |el| {
+                el.child(
+                    v_flex()
+                        .absolute().bottom(px(footer_h)).left_0().right_0().h(px(fif_bar_h))
+                        .bg(rgb(0x2d2d2d)).border_t_1().border_color(rgb(0x454545)).px_4().py_2().gap_1()
+                        .child(
+                            h_flex().gap_4().items_center()
+                                .child(div().w(px(60.0)).text_size(px(12.0)).text_color(rgb(0xcccccc)).child("Find:"))
+                                .child(
+                                    div()
+                                        .flex_1().bg(rgb(0x3c3c3c)).border_1().border_color(if is_fif_find_focused { rgb(0x007acc) } else { rgb(0x454545) }).px_2().py_1()
+                                        .track_focus(&self.fif_focus_find)
+                                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, _| { window.focus(&this.fif_focus_find); }))
+                                        .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                                            match event.keystroke.key.as_str() {
+                                                "backspace" => { this.fif_query.pop(); }
+                                                "enter" => { this.perform_find_in_files(cx); }
+                                                "escape" => { this.fif_active = false; window.focus(&this.focus_handle); }
+                                                key if key.len() == 1 => { this.fif_query.push_str(key); }
+                                                _ => {}
+                                            }
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_size(px(12.0)).text_color(rgb(0xffffff)).child(if self.fif_query.is_empty() { " ".to_string() } else { self.fif_query.clone() }))
+                                )
+                                .child(
+                                    div().px_3().py_1().bg(rgb(0x007acc)).hover(|s| s.bg(rgb(0x0062a3))).cursor_pointer()
+                                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.perform_find_in_files(cx)))
+                                        .child(div().text_size(px(11.0)).text_color(rgb(0xffffff)).child("Find"))
+                                )
+                        )
+                        .child(
+                            h_flex().gap_4().items_center()
+                                .child(div().w(px(60.0)).text_size(px(12.0)).text_color(rgb(0xcccccc)).child("Where:"))
+                                .child(
+                                    div()
+                                        .flex_1().bg(rgb(0x3c3c3c)).border_1().border_color(if is_fif_where_focused { rgb(0x007acc) } else { rgb(0x454545) }).px_2().py_1()
+                                        .track_focus(&self.fif_focus_where)
+                                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, _| { window.focus(&this.fif_focus_where); }))
+                                        .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                                            match event.keystroke.key.as_str() {
+                                                "backspace" => { this.fif_where.pop(); }
+                                                key if key.len() == 1 => { this.fif_where.push_str(key); }
+                                                _ => {}
+                                            }
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_size(px(12.0)).text_color(rgb(0xaaaaaa)).child(if self.fif_where.is_empty() { " ".to_string() } else { self.fif_where.clone() }))
+                                )
+                                .child(
+                                    h_flex().items_center().gap_2().cursor_pointer()
+                                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| { this.fif_use_gitignore = !this.fif_use_gitignore; cx.notify(); }))
+                                        .child(div().size(px(14.0)).border_1().border_color(rgb(0x666666)).bg(if self.fif_use_gitignore { rgb(0x007acc) } else { rgb(0x3c3c3c) }))
+                                        .child(div().text_size(px(11.0)).text_color(rgb(0xcccccc)).child(".gitignore"))
+                                )
+                        )
+                        .child(
+                            h_flex().gap_4().items_center()
+                                .child(div().w(px(60.0)).text_size(px(12.0)).text_color(rgb(0xcccccc)).child("Replace:"))
+                                .child(
+                                    div()
+                                        .flex_1().bg(rgb(0x3c3c3c)).border_1().border_color(if is_fif_replace_focused { rgb(0x007acc) } else { rgb(0x454545) }).px_2().py_1()
+                                        .track_focus(&self.fif_focus_replace)
+                                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, _| { window.focus(&this.fif_focus_replace); }))
+                                        .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                                            match event.keystroke.key.as_str() {
+                                                "backspace" => { this.fif_replace.pop(); }
+                                                key if key.len() == 1 => { this.fif_replace.push_str(key); }
+                                                _ => {}
+                                            }
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_size(px(12.0)).text_color(rgb(0xffffff)).child(if self.fif_replace.is_empty() { " ".to_string() } else { self.fif_replace.clone() }))
+                                )
+                                .child(
+                                    div().px_3().py_1().bg(rgb(0x3e3e3e)).hover(|s| s.bg(rgb(0x4e4e4e))).cursor_pointer()
+                                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.perform_replace_in_files(cx)))
+                                        .child(div().text_size(px(11.0)).text_color(rgb(0xcccccc)).child("Replace"))
+                                )
+                        )
+                )
+            })
+            .when(self.open_menu != OpenMenu::None, |el| {
+                let items = match &self.open_menu { 
+                    OpenMenu::File => file_menu_items(), 
+                    OpenMenu::Edit => edit_menu_items(),
+                    OpenMenu::Selection => selection_menu_items(),
+                    OpenMenu::Find => find_menu_items(),
+                    OpenMenu::View => view_menu_items(),
+                    OpenMenu::Goto => goto_menu_items(),
+                    OpenMenu::Tools => tools_menu_items(),
+                    OpenMenu::Project => project_menu_items(),
+                    OpenMenu::Preferences => preferences_menu_items(),
+                    OpenMenu::Help => help_menu_items(),
+                    _ => vec![] 
+                };
+                
+                let get_label_width = |label: &str, char_widths: &HashMap<char, f32>| {
+                    label.chars()
+                        .map(|c| char_widths.get(&c).unwrap_or(&7.0))
+                        .sum::<f32>() + 24.0
+                };
+
+                let mut dropdown_left = 0.0f32;
+                for (label, variant) in menu_bar_labels.iter() {
+                    if variant == &self.open_menu { break; }
+                    dropdown_left += get_label_width(label, &self.char_widths);
+                }
+
+                el.child(div().absolute().top_0().left_0().size_full().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| { this.open_menu = OpenMenu::None; cx.notify(); })))
+                  .child(v_flex().absolute().top(px(menu_bar_h)).left(px(dropdown_left)).w(px(270.0)).bg(rgb(0x2d2d2d)).border_1().border_color(rgb(0x454545)).shadow_lg().py(px(4.0)).children(items.into_iter().map(|item| {
+                      if item.is_separator { div().h(px(1.0)).my(px(3.0)).mx(px(8.0)).bg(rgb(0x444444)).into_any_element() }
+                      else {
+                          let action = item.action.boxed_clone();
+                          let label = item.label;
+                          h_flex().id(label).justify_between().items_center().px(px(12.0)).py(px(3.0)).text_size(px(12.0)).text_color(rgb(0xcccccc)).hover(|s| s.bg(rgb(0x094771)).text_color(rgb(0xffffff))).cursor_pointer()
+                                  .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| { 
+                                      let action_ref = action.as_ref();
+                                      if label == "Save" { this.save_active(cx); }
+                                      else if label == "Save All" { this.save_all(cx); }
+                                      else if label == "Save As..." { this.save_as(cx); }
+                                      else if label == "Find..." { 
+                                          this.find_active = true; 
+                                          this.fif_active = false;
+                                          window.focus(&this.find_focus_handle);
+                                      }
+                                      else if label == "Find in Files..." {
+                                          this.fif_active = true;
+                                          this.find_active = false;
+                                          window.focus(&this.fif_focus_find);
+                                      }
+                                      else if label == "Quit" || label == "Exit" { cx.quit(); }
+                                      else { cx.dispatch_action(action_ref); }
+                                      this.open_menu = OpenMenu::None;
+                                      cx.notify();
+                                  }))
+                                  .child(item.label)
+                                  .when(item.has_arrow, |el| el.child(div().text_size(px(10.0)).text_color(rgb(0x888888)).child("▶")))
+                                  .when_some(item.shortcut, |el, sc| el.child(div().text_size(px(10.0)).text_color(rgb(0x888888)).child(sc)))
+                                  .into_any_element()
+                      }
+                  })))
+            })
+            .when_some(self.pending_close_path.clone(), |el, path| {
+                el.child(
+                    div()
+                        .absolute().top_0().left_0().size_full()
+                        .bg(rgba(0x000000aa)) 
+                        .flex().items_center().justify_center()
+                        .child(
+                            v_flex()
+                                .w(px(400.0))
+                                .bg(rgb(0x2d2d2d))
+                                .border_1().border_color(rgb(0x454545))
+                                .shadow_xl()
+                                .p_6()
+                                .child(div().text_size(px(16.0)).text_color(rgb(0xffffff)).child("Unsaved Changes"))
+                                .child(div().mt_4().text_size(px(13.0)).text_color(rgb(0xcccccc)).child(format!("Do you want to save the changes you made to {}?", path.file_name().and_then(|n| n.to_str()).unwrap_or("this file"))))
+                                .child(
+                                    h_flex().mt_8().justify_end().gap_3()
+                                        .child(
+                                            div().px_4().py_2().bg(rgb(0x007acc)).hover(|s| s.bg(rgb(0x0062a3))).cursor_pointer()
+                                                .on_mouse_down(MouseButton::Left, cx.listener({
+                                                    let path = path.clone();
+                                                    move |this, _, _, cx| {
+                                                        this.save_path(path.clone(), cx);
+                                                        this.close_tab(path.clone(), cx);
+                                                        this.pending_close_path = None;
+                                                        cx.notify();
+                                                    }
+                                                }))
+                                                .child(div().text_size(px(12.0)).text_color(rgb(0xffffff)).child("Save"))
+                                        )
+                                        .child(
+                                            div().px_4().py_2().bg(rgb(0x3e3e3e)).hover(|s| s.bg(rgb(0x4e4e4e))).cursor_pointer()
+                                                .on_mouse_down(MouseButton::Left, cx.listener({
+                                                    let path = path.clone();
+                                                    move |this, _, _, cx| {
+                                                        this.close_tab(path.clone(), cx);
+                                                        this.pending_close_path = None;
+                                                        cx.notify();
+                                                    }
+                                                }))
+                                                .child(div().text_size(px(12.0)).text_color(rgb(0xffffff)).child("Don't Save"))
+                                        )
+                                        .child(
+                                            div().px_4().py_2().bg(rgb(0x3e3e3e)).hover(|s| s.bg(rgb(0x4e4e4e))).cursor_pointer()
+                                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                                    this.pending_close_path = None;
+                                                    cx.notify();
+                                                }))
+                                                .child(div().text_size(px(12.0)).text_color(rgb(0xffffff)).child("Cancel"))
+                                        )
+                                )
+                        )
+                )
+            })
+    }
+}
