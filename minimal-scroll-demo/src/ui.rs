@@ -651,9 +651,10 @@ impl Render for ScrollDemo {
                 };
 
                 let mut dropdown_left = 0.0f32;
+                let width_correction = if cfg!(target_os = "windows") { -1.0 } else { 1.4 };
                 for (label, variant) in menu_bar_labels.iter() {
                     if variant == &self.open_menu { break; }
-                    dropdown_left += get_label_width(label, &self.char_widths);
+                    dropdown_left = dropdown_left + get_label_width(label, &self.char_widths) + width_correction;
                 }
 
                 el.child(div().absolute().top_0().left_0().size_full().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| { this.open_menu = OpenMenu::None; cx.notify(); })))
