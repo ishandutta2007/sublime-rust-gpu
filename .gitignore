@@ -1,6 +1,7 @@
-target
 *.bak
-*.log
-*.txt
-.ruff_cache
-.DS_Store
+*.bk
+*.env
+.cache
+__pycache__/*
+contributors.txt
+temp_repo_clone
