@@ -6,6 +6,7 @@
 [![Rust Version](https://img.shields.io/badge/Rust-2021%20Edition-DEA584?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 [![Issues](https://img.shields.io/github/issues/ishandutta2007/sublime-rust-gpu?style=for-the-badge&logo=github)](https://github.com/ishandutta2007/sublime-rust-gpu/issues)
+<a href="https://github.com/ishandutta2007"><img alt="GitHub followers" src="https://img.shields.io/github/followers/ishandutta2007?label=Follow" /></a>
 
 <br/>
 <br/>
@@ -117,13 +118,30 @@ Contributions make the open-source community thrive!
 
 ---
 
+## 💖 Support & Sponsorship
+
+Thank you so much for checking out **Sublime Rust GPU**! If you find this project exciting, helpful, or inspiring, please consider supporting its development:
+
+- ⭐ **Star this repository:** Show your love and help others discover it.
+- 🍴 **Fork & Share:** Spread the word with your developer circles and colleagues.
+- 🐛 **Provide Feedback:** Open issues or suggest features to guide future releases.
+- ☕ **Buy me a coffee / Sponsor:** Support ongoing open-source development directly via the [GitHub Sponsors Dashboard](https://github.com/sponsors/ishandutta2007).
+
+<div align="center">
+  <a href="https://github.com/sponsors/ishandutta2007">
+    <img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github-sponsors" alt="Sponsor on GitHub" />
+  </a>
+</div>
+
+---
+
 ## 📜 License
 
 Distributed under the **MIT License**. See [`LICENSE`](file:///C:/Users/ishan/Documents/Projects/sublime-rust-gpu/LICENSE) for more information.
 
 ---
 
-## 🌟 Star History
+## 📈 Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=ishandutta2007/sublime-rust-gpu&type=date&legend=top-left)](https://www.star-history.com/#ishandutta2007/sublime-rust-gpu&type=date&legend=top-left)
 
