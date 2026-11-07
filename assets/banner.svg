@@ -1,0 +1,187 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0d14"/>
+      <stop offset="50%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#07090e"/>
+    </linearGradient>
+
+    <!-- Accent Gradients -->
+    <linearGradient id="titleGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FF9800"/>
+      <stop offset="50%" stop-color="#FF5722"/>
+      <stop offset="100%" stop-color="#E91E63"/>
+    </linearGradient>
+
+    <linearGradient id="gpuGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F5D4"/>
+      <stop offset="100%" stop-color="#7B2CBF"/>
+    </linearGradient>
+
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.07"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.02"/>
+    </linearGradient>
+
+    <!-- Glow filters -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="30" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <filter id="subtleGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <!-- Grid Pattern -->
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#ffffff" stroke-opacity="0.035" stroke-width="1"/>
+    </pattern>
+
+    <style>
+      .glow-orb-1 {
+        animation: floatOrb1 10s ease-in-out infinite alternate;
+      }
+      .glow-orb-2 {
+        animation: floatOrb2 8s ease-in-out infinite alternate;
+      }
+      .pulse-chip {
+        animation: pulseBorder 4s ease-in-out infinite;
+      }
+      .wave-line {
+        stroke-dasharray: 8 8;
+        animation: flowDash 20s linear infinite;
+      }
+      @keyframes floatOrb1 {
+        0% { transform: translate(0px, 0px) scale(1); }
+        100% { transform: translate(60px, 40px) scale(1.15); }
+      }
+      @keyframes floatOrb2 {
+        0% { transform: translate(0px, 0px) scale(1); }
+        100% { transform: translate(-50px, -30px) scale(1.2); }
+      }
+      @keyframes pulseBorder {
+        0%, 100% { stroke-opacity: 0.3; }
+        50% { stroke-opacity: 0.8; filter: drop-shadow(0 0 8px rgba(0, 245, 212, 0.6)); }
+      }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -320; }
+      }
+      .title-text {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+      }
+      .sub-text {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        font-weight: 400;
+        fill: #94A3B8;
+      }
+      .pill-text {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        fill: #F1F5F9;
+      }
+    </style>
+  </defs>
+
+  <!-- Deep Canvas Background -->
+  <rect width="1200" height="420" rx="16" fill="url(#bgGrad)"/>
+  <rect width="1200" height="420" rx="16" fill="url(#grid)"/>
+
+  <!-- Dynamic Animated Ambient Glows in Background -->
+  <g opacity="0.6">
+    <circle class="glow-orb-1" cx="220" cy="110" r="140" fill="#FF5722" opacity="0.18" filter="url(#glow)"/>
+    <circle class="glow-orb-2" cx="980" cy="280" r="160" fill="#00F5D4" opacity="0.14" filter="url(#glow)"/>
+    <circle class="glow-orb-1" cx="800" cy="90" r="120" fill="#7B2CBF" opacity="0.15" filter="url(#glow)"/>
+  </g>
+
+  <!-- Decorative Circuit / Streamlines (Dynamic background) -->
+  <path class="wave-line" d="M 0 100 Q 300 160 600 90 T 1200 140" fill="none" stroke="#FF7043" stroke-width="1.5" opacity="0.25"/>
+  <path class="wave-line" d="M 0 320 Q 350 250 700 330 T 1200 270" fill="none" stroke="#00F5D4" stroke-width="1.5" opacity="0.2"/>
+
+  <!-- Top Accent Bar -->
+  <rect x="0" y="0" width="1200" height="4" fill="url(#titleGrad)"/>
+
+  <!-- FOREGROUND LAYER: Content remains crisp and clearly visible above animations -->
+  <g transform="translate(80, 75)">
+    <!-- Brand Tag / Category Badge -->
+    <rect x="0" y="0" width="190" height="28" rx="14" fill="#FF5722" fill-opacity="0.15" stroke="#FF5722" stroke-opacity="0.4" stroke-width="1"/>
+    <circle cx="14" cy="14" r="4" fill="#FF5722">
+      <animate attributeName="opacity" values="0.4;1;0.4" dur="2s" repeatCount="indefinite"/>
+    </circle>
+    <text x="26" y="18" fill="#FF8A65" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" letter-spacing="1.2">GPU-ACCELERATED</text>
+
+    <!-- Main Title -->
+    <text class="title-text" x="0" y="78" font-size="52" fill="url(#titleGrad)">Sublime Rust GPU</text>
+
+    <!-- Subtitle / Value Proposition -->
+    <text class="sub-text" x="0" y="122" font-size="20">
+      Blazing-fast, ultra-responsive code editor inspired by Sublime Text
+    </text>
+    <text class="sub-text" x="0" y="150" font-size="17" fill="#64748B">
+      Engineered from scratch in Rust • Powered by Zed's GPUI Framework
+    </text>
+
+    <!-- Feature Pills / Badges in Foreground -->
+    <g transform="translate(0, 195)">
+      <!-- Pill 1: Rust Powered -->
+      <g transform="translate(0, 0)">
+        <rect width="145" height="38" rx="19" fill="url(#cardGrad)" stroke="#DEA584" stroke-width="1" stroke-opacity="0.4"/>
+        <circle cx="19" cy="19" r="5" fill="#E65100"/>
+        <text class="pill-text" x="32" y="24">🦀 100% Rust</text>
+      </g>
+
+      <!-- Pill 2: GPUI Accelerated -->
+      <g transform="translate(160, 0)" class="pulse-chip">
+        <rect width="180" height="38" rx="19" fill="url(#cardGrad)" stroke="#00F5D4" stroke-width="1.2" stroke-opacity="0.6"/>
+        <circle cx="19" cy="19" r="5" fill="#00F5D4">
+          <animate attributeName="r" values="4;6;4" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        <text class="pill-text" x="32" y="24">⚡ GPUI Engine</text>
+      </g>
+
+      <!-- Pill 3: Instant Startup -->
+      <g transform="translate(355, 0)">
+        <rect width="175" height="38" rx="19" fill="url(#cardGrad)" stroke="#FFB74D" stroke-width="1" stroke-opacity="0.4"/>
+        <circle cx="19" cy="19" r="5" fill="#FF9800"/>
+        <text class="pill-text" x="32" y="24">🚀 Instant Startup</text>
+      </g>
+
+      <!-- Pill 4: Sublime Minimal -->
+      <g transform="translate(545, 0)">
+        <rect width="175" height="38" rx="19" fill="url(#cardGrad)" stroke="#AB47BC" stroke-width="1" stroke-opacity="0.4"/>
+        <circle cx="19" cy="19" r="5" fill="#AB47BC"/>
+        <text class="pill-text" x="32" y="24">🎨 Sublime Feel</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Right Visual Element: Sleek Code / Editor Frame Mockup -->
+  <g transform="translate(860, 75)" opacity="0.95">
+    <rect width="260" height="260" rx="14" fill="#0D1117" stroke="#30363D" stroke-width="1.5" filter="url(#subtleGlow)"/>
+    <!-- Window buttons -->
+    <circle cx="20" cy="18" r="4.5" fill="#EC5F67"/>
+    <circle cx="35" cy="18" r="4.5" fill="#FAC863"/>
+    <circle cx="50" cy="18" r="4.5" fill="#99C794"/>
+    <line x1="10" y1="36" x2="250" y2="36" stroke="#21262D" stroke-width="1"/>
+
+    <!-- Code Mock Lines -->
+    <rect x="20" y="55" width="85" height="8" rx="4" fill="#C594C5"/>
+    <rect x="112" y="55" width="60" height="8" rx="4" fill="#6699CC"/>
+    <rect x="20" y="75" width="50" height="8" rx="4" fill="#FAC863"/>
+    <rect x="76" y="75" width="110" height="8" rx="4" fill="#99C794"/>
+    <rect x="35" y="95" width="140" height="8" rx="4" fill="#5FB3B3"/>
+    <rect x="35" y="115" width="90" height="8" rx="4" fill="#EC5F67"/>
+    <rect x="35" y="135" width="120" height="8" rx="4" fill="#F99157"/>
+
+    <!-- Simulated GPU Rendering Frame Counter -->
+    <rect x="20" y="175" width="220" height="65" rx="8" fill="#161B22" stroke="#30363D" stroke-width="1"/>
+    <text x="32" y="196" fill="#7EE787" font-family="monospace" font-size="11" font-weight="bold">GPU FPS: 120 FPS</text>
+    <text x="32" y="213" fill="#8B949E" font-family="monospace" font-size="10">RENDER TIME: 1.2ms</text>
+    <text x="32" y="228" fill="#58A6FF" font-family="monospace" font-size="10">BACKEND: GPUI / WGPU</text>
+  </g>
+</svg>
